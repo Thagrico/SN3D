@@ -58,22 +58,27 @@ html,body{
         1px -1px 2px white,
         -1px 1px 2px white;
 }
-
-
-.thua-tooltip{
-    background:transparent !important;
-    border:none !important;
-    box-shadow:none !important;
+.thua-label{
     color:#000;
     font-size:12px;
     font-weight:700;
     white-space:nowrap;
     text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff,1px -1px 2px #fff,-1px 1px 2px #fff;
-    pointer-events:none;
 }
-.thua-tooltip:before{
-    display:none !important;
+
+
+.thua-tooltip{
+background:transparent;
+border:none;
+box-shadow:none;
+color:#000;
+font-size:12px;
+font-weight:700;
+white-space:nowrap;
+text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff,1px -1px 2px #fff,-1px 1px 2px #fff;
+pointer-events:none;
 }
+.thua-tooltip:before{display:none;}
 
 .lo-label{
     width:22px;
@@ -287,15 +292,19 @@ fetch('Thua.geojson')
                 createPopup(feature.properties)
             );
 
-            layer.bindTooltip(
-                feature.properties["Thửa (Plot)"] || "",
-                {
-                    permanent:true,
-                    direction:"center",
-                    className:"thua-tooltip",
-                    offset:[0,0]
-                }
-            );
+            const bounds = layer.getBounds();
+            const nw = bounds.getNorthWest();
+            const pos = L.latLng(nw.lat - 0.00002, nw.lng + 0.00002);
+
+            L.tooltip({
+                permanent:true,
+                direction:'top',
+                className:'thua-tooltip',
+                offset:[0,0]
+            })
+            .setLatLng(pos)
+            .setContent(feature.properties["Thửa (Plot)"] || '')
+            .addTo(map);
 
         }
 
