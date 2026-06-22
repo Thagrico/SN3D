@@ -258,7 +258,7 @@ fetch('Thua.geojson')
 
     color:'#FFFFFF',
 
-    weight:1.0,
+    weight:1.2,
 
     opacity:1,
 
@@ -309,37 +309,6 @@ fetch('Thua.geojson')
 
 });
 
-
-// =====================
-// RANH THUA
-// =====================
-fetch('Ranh_thua.geojson')
-.then(r=>r.json())
-.then(data=>{
- L.geoJSON(data,{
-   pane:'polygonPane',
-   style:{
-     color:'#AFC0CA',
-     weight:3.2,
-     opacity:0.22,
-     lineJoin:'round',
-     lineCap:'round'
-   }
- }).addTo(map);
- L.geoJSON(data,{
-   pane:'polygonPane',
-   style:{
-     color:'#7E96A6',
-     weight:1.0,
-     opacity:0.65,
-     lineJoin:'round',
-     lineCap:'round'
-   }
- }).addTo(map);
-})
-.catch(err=>console.log(err));
-
-
 // =====================
 // LINE LO
 // =====================
@@ -348,6 +317,26 @@ fetch('Line_lo.geojson')
 .then(data=>{
  L.geoJSON(data,{pane:'linePane',style:{color:'#ffffff',weight:4,opacity:1}}).addTo(map);
  L.geoJSON(data,{pane:'linePane',style:{color:'#29B6F6',weight:2,opacity:1}}).addTo(map);
+})
+.catch(err=>console.log(err));
+
+
+// =====================
+// RANH THUA
+// =====================
+fetch('Ranh_thua.geojson')
+.then(r=>r.json())
+.then(data=>{
+    L.geoJSON(data,{
+        pane:'ranhPane',
+        style:{
+            color:'#B8C4CC',
+            weight:2.2,
+            opacity:0.55,
+            lineJoin:'round',
+            lineCap:'round'
+        }
+    }).addTo(map);
 })
 .catch(err=>console.log(err));
 
