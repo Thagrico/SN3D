@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Bản đồ thửa và luống cây 3D tự nhiên</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Arial,Helvetica,sans-serif;background:#dfe7dd}
+#map{position:absolute;inset:0}
+.panel{position:absolute;z-index:10;top:12px;left:12px;width:min(310px,calc(100vw - 24px));background:rgba(255,255,255,.94);backdrop-filter:blur(9px);border:1px solid rgba(0,0,0,.14);border-radius:13px;padding:12px;box-shadow:0 5px 20px rgba(0,0,0,.2);box-sizing:border-box}
+.panel h1{margin:0 0 5px;font-size:16px;color:#173f24}.subtitle{font-size:11px;color:#555;line-height:1.4;margin-bottom:7px}
+.control-row{display:grid;grid-template-columns:110px 1fr 48px;align-items:center;gap:7px;margin-top:8px;font-size:12px}.control-row input{width:100%}.value{text-align:right;font-weight:700;color:#173f24}
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;font-size:12px}.switch-row input{width:18px;height:18px}
+.buttons{display:flex;gap:8px;margin-top:10px}.buttons button{border:0;border-radius:8px;padding:8px 10px;cursor:pointer;font-weight:700;font-size:12px;background:#173f24;color:#fff}
+.note{margin-top:8px;padding-top:8px;border-top:1px solid #ddd;color:#555;font-size:11px;line-height:1.4}
+.status{position:absolute;z-index:20;inset:50% auto auto 50%;transform:translate(-50%,-50%);background:rgba(20,40,24,.93);color:#fff;border-radius:10px;padding:12px 16px;font-size:13px}
+.maplibregl-popup-content{padding:0;border-radius:10px;overflow:hidden}.popup-title{padding:10px 12px;background:#173f24;color:#fff;font-weight:700}.popup-body{padding:9px 11px;max-height:330px;overflow:auto;font-size:12px;line-height:1.45}.popup-body div{border-bottom:1px solid #eee;padding:4px 0}.popup-body b{display:inline-block;min-width:45%}
+@media(max-width:680px){.panel{top:7px;left:7px;width:calc(100vw - 14px);padding:10px}}
+</style>
+</head>
+<body>
+<div id="map"></div><div id="status" class="status">Đang dựng luống theo từng thửa…</div>
+<section class="panel">
+<h1>Luống cây 3D theo từng thửa</h1>
+<div class="subtitle">Ranh thửa được nhấn rõ bằng viền đất nhiều lớp; luống dựng theo nhiều tầng thu nhỏ dần để tạo sườn dốc và đỉnh bo mềm tự nhiên hơn.</div>
+<div class="control-row"><label>Độ cao luống</label><input id="height" type="range" min="6" max="30" value="16"><span id="heightV" class="value">16 m</span></div>
+<div class="control-row"><label>Khoảng cách luống</label><input id="spacing" type="range" min="10" max="32" value="18"><span id="spacingV" class="value">18 m</span></div>
+<div class="control-row"><label>Độ rộng luống</label><input id="width" type="range" min="5" max="18" value="11"><span id="widthV" class="value">11 m</span></div>
+<div class="control-row"><label>Góc nghiêng</label><input id="pitch" type="range" min="25" max="70" value="62"><span id="pitchV" class="value">62°</span></div>
+<div class="switch-row"><label>Hiện ranh thửa tự nhiên</label><input id="borderToggle" type="checkbox" checked></div>
+<div class="switch-row"><label>Hiện luống cây</label><input id="bedToggle" type="checkbox" checked></div>
+<div class="buttons"><button id="rebuild">Dựng lại luống</button><button id="reset">Đặt lại góc nhìn</button></div>
+<div class="note">Đặt file này cùng thư mục với <b>Thua.geojson</b>, <b>Line_lo.geojson</b>, <b>Ranh_xn.geojson</b>, <b>Ten_xn.geojson</b> và <b>Text_lo.geojson</b>.</div>
+</section>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+<script>
+const map=new maplibregl.Map({container:'map',style:{version:8,sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap'}},layers:[{id:'osm',type:'raster',source:'osm',paint:{'raster-opacity':.72,'raster-saturation':-.25,'raster-contrast':.08}}]},center:[106.603,12.239],zoom:15.8,pitch:62,bearing:-18,antialias:true});
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
+let thuaData=null, bedsData={type:'FeatureCollection',features:[]};
+const qColor=p=>{const q=String(p['Chất lượng vườn (Plantation Quality)']||p['Plantation Quality']||'').toLowerCase();if(q.includes('good')||q.includes('tốt'))return '#2E7D32';if(q.includes('fair')||q.includes('trung'))return '#7CB342';if(q.includes('poor')||q.includes('kém'))return '#B8D7A5';if(q.includes('new')||q.includes('trồng mới'))return '#B59B3A';return '#A9B2A7'};
+const darken=(hex,f=.52)=>{const n=parseInt(hex.slice(1),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;return '#'+[r,g,b].map(v=>Math.max(0,Math.round(v*f)).toString(16).padStart(2,'0')).join('')};
+const lighten=(hex,f=.36)=>{const n=parseInt(hex.slice(1),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;return '#'+[r,g,b].map(v=>Math.min(255,Math.round(v+(255-v)*f)).toString(16).padStart(2,'0')).join('')};
+function preparePlots(data){data.features.forEach((f,i)=>{const c=qColor(f.properties||{});f.id=i;f.properties={...(f.properties||{}),__id:i,__color:c,__side:darken(c),__top:lighten(c,.18)}});return data}
+function makeBeds(data,spacing,width){const out=[];const tiers=[{w:1,base:.00,top:.34,t:0},{w:.82,base:.30,top:.64,t:1},{w:.60,base:.60,top:.86,t:2},{w:.34,base:.82,top:1.00,t:3}];for(const plot of data.features){try{const bb=turf.bbox(plot),center=turf.centroid(plot).geometry.coordinates;const west=turf.point([bb[0],center[1]]),east=turf.point([bb[2],center[1]]),south=turf.point([center[0],bb[1]]),north=turf.point([center[0],bb[3]]);const ew=turf.distance(west,east,{units:'meters'}),ns=turf.distance(south,north,{units:'meters'}),horizontal=ew>=ns;const long=Math.max(ew,ns)*1.5,short=Math.min(ew,ns);const count=Math.ceil(short/spacing)+3;for(let k=-count;k<=count;k++){const offset=k*spacing;let a,b;if(horizontal){const c=turf.destination(turf.point(center),offset,0,{units:'meters'}).geometry.coordinates;a=turf.destination(turf.point(c),long/2,270,{units:'meters'}).geometry.coordinates;b=turf.destination(turf.point(c),long/2,90,{units:'meters'}).geometry.coordinates}else{const c=turf.destination(turf.point(center),offset,90,{units:'meters'}).geometry.coordinates;a=turf.destination(turf.point(c),long/2,180,{units:'meters'}).geometry.coordinates;b=turf.destination(turf.point(c),long/2,0,{units:'meters'}).geometry.coordinates}const split=turf.lineSplit(turf.lineString([a,b]),turf.polygonToLine(plot));for(const seg of split.features){const len=turf.length(seg,{units:'meters'});if(len<1.5)continue;const mid=turf.along(seg,len/2,{units:'meters'});if(!turf.booleanPointInPolygon(mid,plot))continue;for(const tier of tiers){const buf=turf.buffer(seg,(width*tier.w)/2,{units:'meters',steps:16});const clipped=turf.intersect(turf.featureCollection([buf,plot]));if(clipped){clipped.properties={...plot.properties,__bed:k,__tier:tier.t,__baseF:tier.base,__topF:tier.top};out.push(clipped)}}}}}catch(e){console.warn('Không dựng được một thửa',e)}}return {type:'FeatureCollection',features:out}}
+function popupHtml(p){let rows='';for(const [k,v] of Object.entries(p||{})){if(k.startsWith('__')||v==null||v==='')continue;rows+=`<div><b>${k}</b>${String(v)}</div>`}return `<div class="popup-title">Lô ${p['Lô (Lot)']||''} – Thửa ${p['Thửa (Plot)']||''}</div><div class="popup-body">${rows}</div>`}
+function addLayers(){const H=Number(height.value);map.addSource('plots',{type:'geojson',data:thuaData});map.addSource('beds',{type:'geojson',data:bedsData});
+map.addLayer({id:'plot-base',type:'fill-extrusion',source:'plots',paint:{'fill-extrusion-color':['get','__side'],'fill-extrusion-height':3,'fill-extrusion-base':0,'fill-extrusion-opacity':.9,'fill-extrusion-vertical-gradient':true}});
+map.addLayer({id:'beds',type:'fill-extrusion',source:'beds',paint:{'fill-extrusion-color':['interpolate',['linear'],['get','__tier'],0,['get','__side'],1,['get','__color'],3,['get','__top']],'fill-extrusion-height':['+',3,['*',['get','__topF'],H]],'fill-extrusion-base':['+',3,['*',['get','__baseF'],H]],'fill-extrusion-opacity':.97,'fill-extrusion-vertical-gradient':true}});
+map.addLayer({id:'bed-shadow',type:'line',source:'beds',filter:['==',['get','__tier'],0],paint:{'line-color':['get','__side'],'line-width':2.8,'line-opacity':.42,'line-blur':1.6,'line-z-offset':3.3}});
+map.addLayer({id:'bed-rim',type:'line',source:'beds',filter:['==',['get','__tier'],3],paint:{'line-color':['get','__top'],'line-width':1.15,'line-opacity':.72,'line-blur':.35,'line-z-offset':H+3.15}});
+map.addLayer({id:'border-shadow',type:'line',source:'plots',paint:{'line-color':'#1f1710','line-width':11,'line-opacity':.72,'line-blur':2.4,'line-z-offset':H+4.2}});
+map.addLayer({id:'border-earth',type:'line',source:'plots',paint:{'line-color':'#68472e','line-width':6.8,'line-opacity':1,'line-z-offset':H+4.8}});
+map.addLayer({id:'border-highlight',type:'line',source:'plots',paint:{'line-color':'#ead8aa','line-width':2.1,'line-opacity':1,'line-z-offset':H+5.25}});
+for(const id of ['beds','plot-base'])map.on('click',id,e=>{const f=e.features&&e.features[0];if(f)new maplibregl.Popup().setLngLat(e.lngLat).setHTML(popupHtml(f.properties)).addTo(map)});
+}
+function rebuild(){const spacingN=Number(spacing.value),widthN=Number(width.value);bedsData=makeBeds(thuaData,spacingN,widthN);if(map.getSource('beds'))map.getSource('beds').setData(bedsData);const H=Number(height.value);if(map.getLayer('beds')){map.setPaintProperty('beds','fill-extrusion-height',['+',3,['*',['get','__topF'],H]]);map.setPaintProperty('beds','fill-extrusion-base',['+',3,['*',['get','__baseF'],H]])}if(map.getLayer('bed-rim'))map.setPaintProperty('bed-rim','line-z-offset',H+3.15);for(const [id,z] of [['border-shadow',4.2],['border-earth',4.8],['border-highlight',5.25]])if(map.getLayer(id))map.setPaintProperty(id,'line-z-offset',H+z)}
+Promise.all([fetch('Thua.geojson').then(r=>{if(!r.ok)throw Error('Không thấy Thua.geojson');return r.json()}),]).then(([d])=>{thuaData=preparePlots(d);bedsData=makeBeds(thuaData,Number(spacing.value),Number(width.value));map.on('load',()=>{addLayers();const bb=turf.bbox(thuaData);map.fitBounds([[bb[0],bb[1]],[bb[2],bb[3]]],{padding:55,pitch:Number(pitch.value),bearing:-18,duration:0});status.remove()})}).catch(e=>{status.textContent=e.message+' — hãy đặt HTML cùng thư mục dữ liệu.';console.error(e)});
+for(const [id,suffix] of [['height',' m'],['spacing',' m'],['width',' m'],['pitch','°']])document.getElementById(id).addEventListener('input',e=>{document.getElementById(id+'V').textContent=e.target.value+suffix;if(id==='height')rebuild();if(id==='pitch')map.easeTo({pitch:Number(e.target.value),duration:120})});
+rebuild.onclick=rebuild;reset.onclick=()=>map.easeTo({pitch:62,bearing:-18,zoom:15.8,duration:500});
+borderToggle.onchange=e=>['border-shadow','border-earth','border-highlight'].forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',e.target.checked?'visible':'none'));
+bedToggle.onchange=e=>['beds','bed-shadow','bed-rim'].forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',e.target.checked?'visible':'none'));
+</script>
+</body>
+</html>
