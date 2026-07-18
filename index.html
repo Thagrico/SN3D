@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Bản đồ thửa – luống 3D bo tròn tự nhiên</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Arial,Helvetica,sans-serif;background:#dfe7dd}
+#map{position:absolute;inset:0}
+.panel{position:absolute;z-index:10;top:12px;left:12px;width:min(320px,calc(100vw - 24px));background:rgba(255,255,255,.94);backdrop-filter:blur(9px);border:1px solid rgba(0,0,0,.14);border-radius:13px;padding:12px;box-shadow:0 5px 20px rgba(0,0,0,.2);box-sizing:border-box}
+.panel h1{margin:0 0 5px;font-size:16px;color:#173f24}.subtitle{font-size:11px;color:#555;line-height:1.4;margin-bottom:7px}
+.control-row{display:grid;grid-template-columns:112px 1fr 48px;align-items:center;gap:7px;margin-top:8px;font-size:12px}.control-row input{width:100%}.value{text-align:right;font-weight:700;color:#173f24}
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;font-size:12px}.switch-row input{width:18px;height:18px}
+.buttons{display:flex;gap:8px;margin-top:10px}.buttons button{border:0;border-radius:8px;padding:8px 10px;cursor:pointer;font-weight:700;font-size:12px;background:#173f24;color:#fff}
+.note{margin-top:8px;padding-top:8px;border-top:1px solid #ddd;color:#555;font-size:11px;line-height:1.4}
+.status{position:absolute;z-index:20;inset:50% auto auto 50%;transform:translate(-50%,-50%);background:rgba(20,40,24,.93);color:#fff;border-radius:10px;padding:12px 16px;font-size:13px}
+.maplibregl-popup-content{padding:0;border-radius:10px;overflow:hidden}.popup-title{padding:10px 12px;background:#173f24;color:#fff;font-weight:700}.popup-body{padding:9px 11px;max-height:330px;overflow:auto;font-size:12px;line-height:1.45}.popup-body div{border-bottom:1px solid #eee;padding:4px 0}.popup-body b{display:inline-block;min-width:45%}
+@media(max-width:680px){.panel{top:7px;left:7px;width:calc(100vw - 14px);padding:10px}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="status" class="status">Đang dựng luống bo tròn theo từng thửa…</div>
+
+<section class="panel">
+<h1>Luống cây 3D theo từng thửa</h1>
+<div class="subtitle">Luống bo tròn, mép hơi lệch tự nhiên, có mô đất sần sùi trên bề mặt và chừa khe rõ quanh từng thửa.</div>
+
+<div class="control-row"><label>Độ cao luống</label><input id="height" type="range" min="5" max="24" value="13"><span id="heightV" class="value">13 m</span></div>
+<div class="control-row"><label>Khoảng cách luống</label><input id="spacing" type="range" min="10" max="32" value="18"><span id="spacingV" class="value">18 m</span></div>
+<div class="control-row"><label>Độ rộng chân luống</label><input id="width" type="range" min="6" max="18" value="12"><span id="widthV" class="value">12 m</span></div>
+<div class="control-row"><label>Độ sần mặt đất</label><input id="roughness" type="range" min="0" max="100" value="58"><span id="roughnessV" class="value">58%</span></div>
+<div class="control-row"><label>Khe ranh thửa</label><input id="edgeGap" type="range" min="1" max="8" value="3"><span id="edgeGapV" class="value">3 m</span></div>
+<div class="control-row"><label>Góc nghiêng</label><input id="pitch" type="range" min="25" max="70" value="60"><span id="pitchV" class="value">60°</span></div>
+
+<div class="switch-row"><label>Hiện ranh thửa</label><input id="borderToggle" type="checkbox" checked></div>
+<div class="switch-row"><label>Hiện luống cây</label><input id="bedToggle" type="checkbox" checked></div>
+<div class="buttons"><button id="rebuildBtn">Dựng lại luống</button><button id="resetBtn">Đặt lại góc nhìn</button></div>
+<div class="note">Giữ nguyên các file GeoJSON. HTML tự nhận cả tên thường và tên có “(1)”.</div>
+</section>
+
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+<script>
+const map = new maplibregl.Map({
+  container:'map',
+  style:{
+    version:8,
+    sources:{
+      osm:{
+        type:'raster',
+        tiles:[
+          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+        ],
+        tileSize:256,
+        attribution:'© OpenStreetMap'
+      }
+    },
+    layers:[{
+      id:'osm',type:'raster',source:'osm',
+      paint:{'raster-opacity':.72,'raster-saturation':-.28,'raster-contrast':.08}
+    }]
+  },
+  center:[106.603,12.239],
+  zoom:15.8,
+  pitch:60,
+  bearing:-18,
+  antialias:true
+});
+
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
+
+let thuaData=null;
+let bedBaseData={type:'FeatureCollection',features:[]};
+let bedMidData={type:'FeatureCollection',features:[]};
+let bedTopData={type:'FeatureCollection',features:[]};
+let clodData={type:'FeatureCollection',features:[]};
+let borderBandData={type:'FeatureCollection',features:[]};
+
+const qColor=p=>{
+  const q=String(p['Chất lượng vườn (Plantation Quality)']||p['Plantation Quality']||'').toLowerCase();
+  if(q.includes('good')||q.includes('tốt'))return '#2E7D32';
+  if(q.includes('fair')||q.includes('trung'))return '#7CB342';
+  if(q.includes('poor')||q.includes('kém'))return '#B8D7A5';
+  if(q.includes('new')||q.includes('trồng mới'))return '#B59B3A';
+  return '#8FA58D';
+};
+
+const shade=(hex,f)=>{
+  const n=parseInt(hex.slice(1),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v*f))).toString(16).padStart(2,'0')).join('');
+};
+
+const lighten=(hex,f)=>{
+  const n=parseInt(hex.slice(1),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  return '#'+[r,g,b].map(v=>Math.min(255,Math.round(v+(255-v)*f)).toString(16).padStart(2,'0')).join('');
+};
+
+function preparePlots(data){
+  data.features.forEach((f,i)=>{
+    const c=qColor(f.properties||{});
+    f.id=i;
+    f.properties={
+      ...(f.properties||{}),
+      __id:i,
+      __color:c,
+      __soil:shade(c,.48),
+      __base:shade(c,.72),
+      __mid:c,
+      __top:lighten(c,.18)
+    };
+  });
+  return data;
+}
+
+async function fetchFirst(names){
+  let lastError;
+  for(const name of names){
+    try{
+      const r=await fetch(name);
+      if(r.ok)return await r.json();
+      lastError=new Error('Không thấy '+name);
+    }catch(e){lastError=e}
+  }
+  throw lastError||new Error('Không tải được dữ liệu');
+}
+
+function safeIntersect(a,b){
+  try{return turf.intersect(turf.featureCollection([a,b]))}catch(e){return null}
+}
+
+function innerPlot(plot,gap){
+  if(gap<=0)return plot;
+  try{
+    const x=turf.buffer(plot,-gap,{units:'meters',steps:24});
+    return x||plot;
+  }catch(e){return plot}
+}
+
+function createCenterSegments(plot,spacing,gap){
+  const usable=innerPlot(plot,gap);
+  const bb=turf.bbox(usable);
+  const center=turf.centroid(usable).geometry.coordinates;
+  const west=turf.point([bb[0],center[1]]),east=turf.point([bb[2],center[1]]);
+  const south=turf.point([center[0],bb[1]]),north=turf.point([center[0],bb[3]]);
+  const ew=turf.distance(west,east,{units:'meters'});
+  const ns=turf.distance(south,north,{units:'meters'});
+  const horizontal=ew>=ns;
+  const long=Math.max(ew,ns)*1.7;
+  const short=Math.min(ew,ns);
+  const count=Math.ceil(short/spacing)+3;
+  const result=[];
+
+  for(let k=-count;k<=count;k++){
+    const offset=k*spacing;
+    let a,b;
+    if(horizontal){
+      const c=turf.destination(turf.point(center),offset,0,{units:'meters'}).geometry.coordinates;
+      a=turf.destination(turf.point(c),long/2,270,{units:'meters'}).geometry.coordinates;
+      b=turf.destination(turf.point(c),long/2,90,{units:'meters'}).geometry.coordinates;
+    }else{
+      const c=turf.destination(turf.point(center),offset,90,{units:'meters'}).geometry.coordinates;
+      a=turf.destination(turf.point(c),long/2,180,{units:'meters'}).geometry.coordinates;
+      b=turf.destination(turf.point(c),long/2,0,{units:'meters'}).geometry.coordinates;
+    }
+
+    const raw=turf.lineString([a,b]);
+    const split=turf.lineSplit(raw,turf.polygonToLine(usable));
+
+    for(const seg of split.features){
+      const len=turf.length(seg,{units:'meters'});
+      if(len<4)continue;
+      const mid=turf.along(seg,len/2,{units:'meters'});
+      if(turf.booleanPointInPolygon(mid,usable))result.push(seg);
+    }
+  }
+  return {usable,segments:result};
+}
+
+function hashNoise(a,b,c=0){
+  const x=Math.sin(a*127.1+b*311.7+c*74.7)*43758.5453123;
+  return x-Math.floor(x);
+}
+
+function jitteredLine(seg,seed,rough){
+  const len=turf.length(seg,{units:'meters'});
+  const steps=Math.max(6,Math.ceil(len/4));
+  const coords=[];
+  const bearing=turf.bearing(turf.point(seg.geometry.coordinates[0]),turf.point(seg.geometry.coordinates.at(-1)));
+  const normal=bearing+90;
+  for(let i=0;i<=steps;i++){
+    const d=len*i/steps;
+    const p=turf.along(seg,d,{units:'meters'});
+    const envelope=Math.sin(Math.PI*i/steps);
+    const n1=(hashNoise(seed,i,1)-.5)*2;
+    const n2=(hashNoise(seed,Math.floor(i/2),2)-.5)*2;
+    const off=(n1*.65+n2*.35)*rough*.7*envelope;
+    const q=turf.destination(p,off,normal,{units:'meters'});
+    coords.push(q.geometry.coordinates);
+  }
+  return turf.lineString(coords);
+}
+
+function roundedBand(seg,usable,width,props,seed,rough){
+  try{
+    const w=Math.max(1.2,width*(.92+hashNoise(seed,1,3)*.16));
+    const capsule=turf.buffer(jitteredLine(seg,seed,rough),w/2,{units:'meters',steps:20});
+    const clipped=safeIntersect(capsule,usable);
+    if(!clipped)return null;
+    clipped.properties={...props,__rough:hashNoise(seed,2,4),__lift:hashNoise(seed,3,5)};
+    return clipped;
+  }catch(e){return null}
+}
+
+
+function lineChunk(seg,startM,endM){
+  const a=turf.along(seg,startM,{units:'meters'}).geometry.coordinates;
+  const b=turf.along(seg,endM,{units:'meters'}).geometry.coordinates;
+  return turf.lineString([a,b]);
+}
+
+function createIrregularChunks(seg,seed){
+  const len=turf.length(seg,{units:'meters'});
+  const out=[];
+  let cursor=hashNoise(seed,1,20)*2.2;
+  let n=0;
+  while(cursor<len-3){
+    const chunkLen=7.5+hashNoise(seed,n,21)*10.5;
+    const end=Math.min(len,cursor+chunkLen);
+    if(end-cursor>4.2)out.push(lineChunk(seg,cursor,end));
+    const gap=1.1+hashNoise(seed,n,22)*2.7;
+    cursor=end+gap;
+    n++;
+  }
+  return out;
+}
+
+function makeBorderBands(data,widthM=2.2){
+  const features=[];
+  for(const plot of data.features){
+    try{
+      const inner=turf.buffer(plot,-widthM,{units:'meters',steps:18});
+      if(!inner)continue;
+      const ring=turf.difference(turf.featureCollection([plot,inner]));
+      if(ring){
+        ring.properties={...plot.properties,__border:1};
+        features.push(ring);
+      }
+    }catch(e){
+      try{
+        const line=turf.polygonToLine(plot);
+        const band=turf.buffer(line,widthM*.55,{units:'meters',steps:12});
+        if(band){band.properties={...plot.properties,__border:1};features.push(band)}
+      }catch(_e){}
+    }
+  }
+  return {type:'FeatureCollection',features};
+}
+
+function makeBeds(data,spacing,width,gap,roughness){
+  const base=[],mid=[],top=[],clods=[];
+  const rough=roughness/100;
+  for(const plot of data.features){
+    try{
+      const {usable,segments}=createCenterSegments(plot,spacing,gap);
+      segments.forEach((seg,k)=>{
+        const rowSeed=(plot.properties.__id+1)*1000+k*37;
+        const chunks=createIrregularChunks(seg,rowSeed);
+        chunks.forEach((chunk,c)=>{
+          const seed=rowSeed+c*101;
+          const props={...plot.properties,__bed:k,__chunk:c};
+          const localWidth=width*(.76+hashNoise(seed,2,31)*.34);
+          const b=roundedBand(chunk,usable,localWidth,props,seed,rough*3.4);
+          const m=roundedBand(chunk,usable,localWidth*(.62+hashNoise(seed,3,32)*.10),props,seed+11,rough*2.5);
+          const t=roundedBand(chunk,usable,localWidth*(.28+hashNoise(seed,4,33)*.12),props,seed+23,rough*1.8);
+          if(b)base.push(b);
+          if(m)mid.push(m);
+          if(t)top.push(t);
+
+          const len=turf.length(chunk,{units:'meters'});
+          const count=Math.max(1,Math.floor(len/5.5));
+          for(let j=1;j<=count;j++){
+            if(hashNoise(seed,j,34)>.38+rough*.30)continue;
+            const d=Math.min(len-.5,(len*j/(count+1))+(hashNoise(seed,j,35)-.5)*2.2);
+            if(d<=.5)continue;
+            const p=turf.along(chunk,d,{units:'meters'});
+            const side=(hashNoise(seed,j,36)-.5)*localWidth*.28;
+            const bearing=turf.bearing(turf.point(chunk.geometry.coordinates[0]),turf.point(chunk.geometry.coordinates.at(-1)));
+            const q=turf.destination(p,side,bearing+90,{units:'meters'});
+            const r=.35+hashNoise(seed,j,37)*(.65+.65*rough);
+            const blob=turf.buffer(q,r,{units:'meters',steps:8});
+            const clip=safeIntersect(blob,usable);
+            if(clip){
+              clip.properties={...props,__clod:1,__lift:hashNoise(seed,j,38)};
+              clods.push(clip);
+            }
+          }
+        });
+      });
+    }catch(e){console.warn('Không dựng được một thửa',e)}
+  }
+  return {
+    base:{type:'FeatureCollection',features:base},
+    mid:{type:'FeatureCollection',features:mid},
+    top:{type:'FeatureCollection',features:top},
+    clods:{type:'FeatureCollection',features:clods}
+  };
+}
+
+function popupHtml(p){
+  let rows='';
+  for(const [k,v] of Object.entries(p||{})){
+    if(k.startsWith('__')||v==null||v==='')continue;
+    rows+=`<div><b>${k}</b>${String(v)}</div>`;
+  }
+  return `<div class="popup-title">Lô ${p['Lô (Lot)']||''} – Thửa ${p['Thửa (Plot)']||''}</div><div class="popup-body">${rows}</div>`;
+}
+
+function addLayers(){
+  const H=Number(height.value);
+
+  map.addSource('plots',{type:'geojson',data:thuaData});
+  map.addSource('bed-base-src',{type:'geojson',data:bedBaseData});
+  map.addSource('bed-mid-src',{type:'geojson',data:bedMidData});
+  map.addSource('bed-top-src',{type:'geojson',data:bedTopData});
+  map.addSource('clod-src',{type:'geojson',data:clodData});
+  map.addSource('border-band-src',{type:'geojson',data:borderBandData});
+
+  // Nền thửa thấp, không che ranh.
+  map.addLayer({
+    id:'plot-base',type:'fill-extrusion',source:'plots',
+    paint:{
+      'fill-extrusion-color':['get','__soil'],
+      'fill-extrusion-height':2.2,
+      'fill-extrusion-base':0,
+      'fill-extrusion-opacity':.84,
+      'fill-extrusion-vertical-gradient':true
+    }
+  });
+
+  // Chân luống xòe rộng.
+  map.addLayer({
+    id:'bed-base',type:'fill-extrusion',source:'bed-base-src',
+    paint:{
+      'fill-extrusion-color':['get','__base'],
+      'fill-extrusion-height':H*.50+2.2,
+      'fill-extrusion-base':2.2,
+      'fill-extrusion-opacity':.98,
+      'fill-extrusion-vertical-gradient':true
+    }
+  });
+
+  // Vai luống bo vào.
+  map.addLayer({
+    id:'bed-mid',type:'fill-extrusion',source:'bed-mid-src',
+    paint:{
+      'fill-extrusion-color':['get','__mid'],
+      'fill-extrusion-height':H*.82+2.2,
+      'fill-extrusion-base':H*.38+2.2,
+      'fill-extrusion-opacity':.98,
+      'fill-extrusion-vertical-gradient':true
+    }
+  });
+
+  // Đỉnh luống hẹp, sáng và mềm.
+  map.addLayer({
+    id:'bed-top',type:'fill-extrusion',source:'bed-top-src',
+    paint:{
+      'fill-extrusion-color':['get','__top'],
+      'fill-extrusion-height':H+2.2,
+      'fill-extrusion-base':H*.70+2.2,
+      'fill-extrusion-opacity':.99,
+      'fill-extrusion-vertical-gradient':true
+    }
+  });
+
+  // Mô đất nhỏ làm mặt luống sần sùi, không phẳng như mái tôn.
+  map.addLayer({
+    id:'bed-clods',type:'fill-extrusion',source:'clod-src',
+    paint:{
+      'fill-extrusion-color':['get','__top'],
+      'fill-extrusion-height':['+',H+2.15,['*',['get','__lift'],1.7]],
+      'fill-extrusion-base':H*.78+2.15,
+      'fill-extrusion-opacity':.9,
+      'fill-extrusion-vertical-gradient':true
+    }
+  });
+
+  // Đường sáng nhẹ giữa đỉnh luống.
+  map.addLayer({
+    id:'bed-highlight',type:'line',source:'bed-top-src',
+    paint:{
+      'line-color':['get','__top'],
+      'line-width':1.2,
+      'line-opacity':.72,
+      'line-blur':.45,
+      'line-z-offset':H+2.35
+    }
+  });
+
+  // Ranh thửa là dải đất riêng, nổi rõ và không phụ thuộc GeoJSON mới.
+  map.addLayer({
+    id:'border-berm',type:'fill-extrusion',source:'border-band-src',
+    paint:{
+      'fill-extrusion-color':'#6b4d31',
+      'fill-extrusion-height':4.6,
+      'fill-extrusion-base':2.15,
+      'fill-extrusion-opacity':.98,
+      'fill-extrusion-vertical-gradient':true
+    }
+  });
+  map.addLayer({
+    id:'border-grass',type:'fill',source:'border-band-src',
+    paint:{'fill-color':'#91a85f','fill-opacity':.92}
+  });
+  map.addLayer({
+    id:'border-highlight',type:'line',source:'plots',
+    paint:{'line-color':'#f0e4c4','line-width':2.4,'line-opacity':1}
+  });
+  map.addLayer({
+    id:'border-dark',type:'line',source:'plots',
+    paint:{'line-color':'#34261b','line-width':5.8,'line-opacity':.92}
+  },'border-highlight');
+
+  ['bed-base','bed-mid','bed-top','plot-base'].forEach(id=>{
+    map.on('click',id,e=>{
+      const f=e.features&&e.features[0];
+      if(f)new maplibregl.Popup().setLngLat(e.lngLat).setHTML(popupHtml(f.properties)).addTo(map);
+    });
+  });
+}
+
+function updateHeights(){
+  const H=Number(height.value);
+  if(map.getLayer('bed-base')){
+    map.setPaintProperty('bed-base','fill-extrusion-height',H*.50+2.2);
+    map.setPaintProperty('bed-mid','fill-extrusion-base',H*.38+2.2);
+    map.setPaintProperty('bed-mid','fill-extrusion-height',H*.82+2.2);
+    map.setPaintProperty('bed-top','fill-extrusion-base',H*.70+2.2);
+    map.setPaintProperty('bed-top','fill-extrusion-height',H+2.2);
+    map.setPaintProperty('bed-highlight','line-z-offset',H+2.35);
+    map.setPaintProperty('bed-clods','fill-extrusion-base',H*.78+2.15);
+    map.setPaintProperty('bed-clods','fill-extrusion-height',['+',H+2.15,['*',['get','__lift'],1.7]]);
+  }
+}
+
+function rebuildBeds(){
+  if(!thuaData)return;
+  status.style.display='block';
+  status.textContent='Đang dựng lại luống đất sần sùi…';
+
+  const made=makeBeds(
+    thuaData,
+    Number(spacing.value),
+    Number(width.value),
+    Number(edgeGap.value),
+    Number(roughness.value)
+  );
+  bedBaseData=made.base;
+  bedMidData=made.mid;
+  bedTopData=made.top;
+  clodData=made.clods;
+  borderBandData=makeBorderBands(thuaData,Math.max(1.6,Number(edgeGap.value)*.72));
+
+  if(map.getSource('bed-base-src'))map.getSource('bed-base-src').setData(bedBaseData);
+  if(map.getSource('bed-mid-src'))map.getSource('bed-mid-src').setData(bedMidData);
+  if(map.getSource('bed-top-src'))map.getSource('bed-top-src').setData(bedTopData);
+  if(map.getSource('clod-src'))map.getSource('clod-src').setData(clodData);
+  if(map.getSource('border-band-src'))map.getSource('border-band-src').setData(borderBandData);
+
+  updateHeights();
+  status.style.display='none';
+}
+
+(async()=>{
+  try{
+    const raw=await fetchFirst(['Thua(1).geojson','Thua.geojson']);
+    thuaData=preparePlots(raw);
+    const made=makeBeds(thuaData,Number(spacing.value),Number(width.value),Number(edgeGap.value),Number(roughness.value));
+    bedBaseData=made.base; bedMidData=made.mid; bedTopData=made.top; clodData=made.clods;
+    borderBandData=makeBorderBands(thuaData,Math.max(1.6,Number(edgeGap.value)*.72));
+
+    map.on('load',()=>{
+      addLayers();
+      const bb=turf.bbox(thuaData);
+      map.fitBounds([[bb[0],bb[1]],[bb[2],bb[3]]],{
+        padding:55,pitch:Number(pitch.value),bearing:-18,duration:0
+      });
+      status.style.display='none';
+    });
+  }catch(e){
+    status.textContent=(e.message||'Không tải được Thua.geojson')+' — hãy đặt HTML cùng thư mục dữ liệu.';
+    console.error(e);
+  }
+})();
+
+height.addEventListener('input',e=>{heightV.textContent=e.target.value+' m';updateHeights()});
+spacing.addEventListener('input',e=>spacingV.textContent=e.target.value+' m');
+width.addEventListener('input',e=>widthV.textContent=e.target.value+' m');
+roughness.addEventListener('input',e=>roughnessV.textContent=e.target.value+'%');
+edgeGap.addEventListener('input',e=>edgeGapV.textContent=e.target.value+' m');
+pitch.addEventListener('input',e=>{pitchV.textContent=e.target.value+'°';map.easeTo({pitch:Number(e.target.value),duration:100})});
+
+rebuildBtn.onclick=rebuildBeds;
+resetBtn.onclick=()=>{
+  const bb=turf.bbox(thuaData);
+  map.fitBounds([[bb[0],bb[1]],[bb[2],bb[3]]],{padding:55,pitch:60,bearing:-18,duration:500});
+};
+
+borderToggle.onchange=e=>['border-berm','border-grass','border-dark','border-highlight']
+  .forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',e.target.checked?'visible':'none'));
+
+bedToggle.onchange=e=>['bed-base','bed-mid','bed-top','bed-clods','bed-highlight']
+  .forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',e.target.checked?'visible':'none'));
+</script>
+</body>
+</html>
