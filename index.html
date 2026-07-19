@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plantation Quality Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+html,body{margin:0;padding:0;height:100%}
+#map{width:100%;height:100vh}
+.popup-table{border-collapse:collapse;width:100%}
+.popup-table td{border:1px solid #ddd;padding:4px 6px;font-size:12px;vertical-align:top}
+.legend{background:white;padding:10px;border-radius:8px;box-shadow:0 0 8px rgba(0,0,0,.25);line-height:22px;font-size:13px}
+.leaflet-interactive{transition:none}
+.xn-label{color:#8B0000;font-size:20px;font-weight:700;text-shadow:1px 1px 2px white,-1px -1px 2px white,1px -1px 2px white,-1px 1px 2px white}
+.thua-label{color:#000;font-size:12px;font-weight:700;white-space:nowrap;text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff,1px -1px 2px #fff,-1px 1px 2px #fff}
+.lo-label{width:22px;height:22px;line-height:22px;text-align:center;background:rgba(255,255,255,.85);border:1.5px solid #003366;border-radius:50%;color:#003366;font-size:11px;font-weight:700;box-sizing:border-box}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map');
+map.options.fadeAnimation=false;
+map.options.zoomAnimation=false;
+
+map.createPane('parcelShadowPane');
+map.getPane('parcelShadowPane').style.zIndex=390;
+map.getPane('parcelShadowPane').style.pointerEvents='none';
+map.createPane('texturePane');
+map.getPane('texturePane').style.zIndex=400;
+map.createPane('polygonPane');
+map.getPane('polygonPane').style.zIndex=445;
+map.createPane('linePane');
+map.getPane('linePane').style.zIndex=500;
+map.createPane('ranhPane');
+map.getPane('ranhPane').style.zIndex=600;
+map.createPane('labelPane');
+map.getPane('labelPane').style.zIndex=650;
+map.getPane('popupPane').style.zIndex=7000;
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+
+const legend=L.control({position:'bottomright'});
+legend.onAdd=function(){
+ const div=L.DomUtil.create('div','legend');
+ div.innerHTML=`
+ <span style="display:inline-block;width:14px;height:14px;background:#2E7D32;border:1px solid #666"></span> Tốt <span style="font-size:11px;color:#666">(Good)</span><br>
+ <span style="display:inline-block;width:14px;height:14px;background:#7CB342;border:1px solid #666"></span> Trung bình <span style="font-size:11px;color:#666">(Fair)</span><br>
+ <span style="display:inline-block;width:14px;height:14px;background:#D8F0C8;border:1px solid #666"></span> Kém <span style="font-size:11px;color:#666">(Poor)</span><br>
+ <span style="display:inline-block;width:14px;height:14px;background:#B59B3A;border:1px solid #666"></span> Trồng mới <span style="font-size:11px;color:#666">(New)</span><br>
+ <span style="display:inline-block;width:14px;height:14px;background:#D9D9D9;border:1px solid #666"></span> <span style="font-size:11px;color:#666">No Data</span>`;
+ return div;
+};
+legend.addTo(map);
+
+function createPopup(properties){
+ let html='<div style="max-height:350px;overflow-y:auto;overflow-x:hidden"><table class="popup-table">';
+ Object.entries(properties).forEach(([key,value])=>{
+   if(value!==null&&value!=='') html+=`<tr><td><b>${key}</b></td><td>${value}</td></tr>`;
+ });
+ return html+'</table></div>';
+}
+
+function qualityText(feature){
+ const p=feature.properties||{};
+ return String(p['Chất lượng vườn (Plantation Quality)']||p['Plantation Quality']||p['CHAT_LUONG_VUON']||p['CL_VUON']||'').toLowerCase();
+}
+function getQualityColor(feature){
+ const q=qualityText(feature);
+ if(q.includes('tốt')||q.includes('tot')||q.includes('good')) return '#2E7D32';
+ if(q.includes('trung bình')||q.includes('trung binh')||q.includes('fair')||q==='tb') return '#7CB342';
+ if(q.includes('kém')||q.includes('kem')||q.includes('poor')) return '#D8F0C8';
+ if(q.includes('trồng mới')||q.includes('trong moi')||q.includes('new')||q==='tm') return '#B59B3A';
+ return '#D9D9D9';
+}
+function getQualityOpacity(feature){
+ const q=qualityText(feature);
+ return (q.includes('trồng mới')||q.includes('trong moi')||q.includes('new')||q==='tm')?0.16:0.23;
+}
+
+// =====================
+// V6 - LUỐNG THẲNG HÀNG
+// =====================
+const BANANA_DETAIL_ZOOM=17;
+const ANGLE_STEP=10; // gom các góc gần nhau, tránh mỗi thửa lệch một chút nhìn xẹo xạo
+const bananaTextureItems=[];
+const madePatternIds=new Set();
+const textureRenderer=L.svg({pane:'texturePane',padding:.35});
+const tintRenderer=L.svg({pane:'polygonPane',padding:.35});
+
+function normalize180(a){
+ a%=180;
+ if(a<0) a+=180;
+ return a;
+}
+
+function quantizeAngle(a){
+ return normalize180(Math.round(normalize180(a)/ANGLE_STEP)*ANGLE_STEP);
+}
+
+function getOuterRing(feature){
+ try{
+   if(feature.geometry.type==='Polygon') return feature.geometry.coordinates[0];
+   if(feature.geometry.type==='MultiPolygon'){
+     let best=feature.geometry.coordinates[0][0];
+     feature.geometry.coordinates.forEach(poly=>{
+       if(poly[0].length>best.length) best=poly[0];
+     });
+     return best;
+   }
+ }catch(e){}
+ return [];
+}
+
+// PCA tìm trục dài chính của thửa. Một thửa chỉ nhận đúng một góc duy nhất.
+function parcelRowAngle(feature){
+ const pts=getOuterRing(feature);
+ if(pts.length<3) return 0;
+
+ let lat0=0;
+ pts.forEach(p=>lat0+=p[1]);
+ lat0/=pts.length;
+ const cosLat=Math.cos(lat0*Math.PI/180);
+
+ let mx=0,my=0;
+ const xy=pts.map(p=>{
+   const x=p[0]*cosLat;
+   const y=p[1];
+   mx+=x; my+=y;
+   return [x,y];
+ });
+ mx/=xy.length; my/=xy.length;
+
+ let sxx=0,syy=0,sxy=0;
+ xy.forEach(([x,y])=>{
+   const dx=x-mx,dy=y-my;
+   sxx+=dx*dx; syy+=dy*dy; sxy+=dx*dy;
+ });
+
+ const geoAxis=.5*Math.atan2(2*sxy,sxx-syy);
+ const dx=Math.cos(geoAxis);
+ const dy=Math.sin(geoAxis);
+
+ // Pattern gốc là luống dọc. Chuyển trục địa lý sang góc quay SVG trên màn hình.
+ const screenAxis=Math.atan2(-dy,dx)*180/Math.PI;
+ const patternRotation=screenAxis-90;
+ return quantizeAngle(patternRotation);
+}
+
+function installBananaBaseDefs(){
+ const svg=textureRenderer._container;
+ if(!svg) return null;
+ let defs=svg.querySelector('defs[data-banana-v6="1"]');
+ if(defs) return defs;
+
+ const ns='http://www.w3.org/2000/svg';
+ defs=document.createElementNS(ns,'defs');
+ defs.setAttribute('data-banana-v6','1');
+
+ const ridgeGrad=document.createElementNS(ns,'linearGradient');
+ ridgeGrad.setAttribute('id','bananaRidgeGradientV6');
+ ridgeGrad.setAttribute('x1','0'); ridgeGrad.setAttribute('x2','1');
+ ridgeGrad.setAttribute('y1','0'); ridgeGrad.setAttribute('y2','0');
+ ridgeGrad.innerHTML=`
+ <stop offset="0" stop-color="#314724"/>
+ <stop offset=".10" stop-color="#4c6634"/>
+ <stop offset=".25" stop-color="#698544"/>
+ <stop offset=".44" stop-color="#89a65a"/>
+ <stop offset=".54" stop-color="#9cb76a"/>
+ <stop offset=".69" stop-color="#7f9a52"/>
+ <stop offset=".86" stop-color="#556f39"/>
+ <stop offset="1" stop-color="#344b27"/>`;
+ defs.appendChild(ridgeGrad);
+
+ const furrowGrad=document.createElementNS(ns,'linearGradient');
+ furrowGrad.setAttribute('id','bananaFurrowGradientV6');
+ furrowGrad.setAttribute('x1','0'); furrowGrad.setAttribute('x2','1');
+ furrowGrad.setAttribute('y1','0'); furrowGrad.setAttribute('y2','0');
+ furrowGrad.innerHTML=`
+ <stop offset="0" stop-color="#9f9a71"/>
+ <stop offset=".5" stop-color="#bbb587"/>
+ <stop offset="1" stop-color="#98946b"/>`;
+ defs.appendChild(furrowGrad);
+
+ svg.insertBefore(defs,svg.firstChild);
+ return defs;
+}
+
+function ensureBananaPattern(angle,detailed){
+ const svg=textureRenderer._container;
+ const defs=installBananaBaseDefs();
+ if(!svg||!defs) return null;
+
+ const cleanAngle=quantizeAngle(angle);
+ const patternId=`bananaRowsV6_${cleanAngle}_${detailed?'D':'S'}`;
+ if(madePatternIds.has(patternId)||svg.querySelector('#'+patternId)){
+   madePatternIds.add(patternId);
+   return patternId;
+ }
+
+ const ns='http://www.w3.org/2000/svg';
+ const pattern=document.createElementNS(ns,'pattern');
+ pattern.setAttribute('id',patternId);
+ pattern.setAttribute('patternUnits','userSpaceOnUse');
+ pattern.setAttribute('width','66');
+ pattern.setAttribute('height','66');
+ pattern.setAttribute('patternTransform',`rotate(${cleanAngle} 0 0)`);
+ pattern.setAttribute('shape-rendering','geometricPrecision');
+
+ // Tất cả là đường thẳng tuyệt đối; không Bézier, không jitter, không displacement.
+ pattern.innerHTML=`
+ <rect width="66" height="66" fill="url(#bananaFurrowGradientV6)" opacity=".97"/>
+ <rect x="5.5" y="-12" width="55" height="90" fill="url(#bananaRidgeGradientV6)"/>
+ <path d="M5.5 -12V78 M60.5 -12V78" stroke="#8b855f" stroke-width="1" opacity=".55"/>
+ <path d="M8.5 -12V78 M57.5 -12V78" stroke="#21351f" stroke-width="1.15" opacity=".18"/>
+ <path d="M33 -12V78" stroke="#e6edb3" stroke-width="1.2" opacity=".18"/>
+ <path d="M21 -12V78 M45 -12V78" stroke="#223720" stroke-width=".9" opacity=".07"/>
+ <path d="M14 -12V78 M52 -12V78" stroke="#d7df9c" stroke-width=".75" opacity=".07"/>`;
+
+ if(detailed){
+   const detail=document.createElementNS(ns,'path');
+   detail.setAttribute('d','M11 -12V78 M17 -12V78 M25 -12V78 M41 -12V78 M49 -12V78 M55 -12V78');
+   detail.setAttribute('stroke','#d4dda0');
+   detail.setAttribute('stroke-width','.5');
+   detail.setAttribute('opacity','.06');
+   detail.setAttribute('fill','none');
+   pattern.appendChild(detail);
+ }
+
+ defs.appendChild(pattern);
+ madePatternIds.add(patternId);
+ return patternId;
+}
+
+function parcelPattern(feature){
+ const detailed=map.getZoom()>=BANANA_DETAIL_ZOOM;
+ const id=ensureBananaPattern(parcelRowAngle(feature),detailed);
+ return id?`url(#${id})`:'#6f8749';
+}
+
+function styleTexturePath(layer,feature){
+ const apply=()=>{
+   if(layer._path){
+     layer._path.setAttribute('fill',parcelPattern(feature));
+     layer._path.removeAttribute('filter');
+     layer._path.style.filter='none';
+   }
+ };
+ apply();
+ requestAnimationFrame(apply);
+}
+
+function refreshBananaDetail(){
+ bananaTextureItems.forEach(({layer,feature})=>{
+   if(layer._path) layer._path.setAttribute('fill',parcelPattern(feature));
+ });
+}
+map.on('zoomend',refreshBananaDetail);
+
+async function fetchGeoJSON(...names){
+ for(const name of names){
+   try{
+     const response=await fetch(name);
+     if(response.ok) return await response.json();
+   }catch(e){}
+ }
+ throw new Error('Không tải được '+names[0]);
+}
+
+fetchGeoJSON('Thua.geojson','Thua(4).geojson','Thua(2).geojson').then(data=>{
+ L.geoJSON(data,{pane:'parcelShadowPane',interactive:false,style:{color:'#4b573d',weight:3.5,opacity:.18,fillColor:'#2a3623',fillOpacity:.10,lineJoin:'round',lineCap:'round'}}).addTo(map);
+
+ L.geoJSON(data,{
+   pane:'texturePane',renderer:textureRenderer,interactive:false,
+   style:{color:'#b5c19e',weight:.65,opacity:.36,fillColor:'#fff',fillOpacity:.98,lineJoin:'round',lineCap:'round'},
+   onEachFeature:(feature,layer)=>{
+     bananaTextureItems.push({layer,feature});
+     layer.on('add',()=>styleTexturePath(layer,feature));
+   }
+ }).addTo(map);
+ installBananaBaseDefs();
+
+ const layer=L.geoJSON(data,{
+   pane:'polygonPane',renderer:tintRenderer,
+   style:feature=>({color:'rgba(211,218,196,.88)',weight:1.2,opacity:.95,fillColor:getQualityColor(feature),fillOpacity:getQualityOpacity(feature),lineJoin:'round',lineCap:'round'}),
+   onEachFeature:(feature,parcelLayer)=>{
+     parcelLayer.bindPopup(createPopup(feature.properties));
+     const nw=parcelLayer.getBounds().getNorthWest();
+     const pos=L.latLng(nw.lat-.00005,nw.lng+.00005);
+     L.marker(pos,{pane:'labelPane',interactive:false,icon:L.divIcon({className:'thua-label',html:feature.properties['Thửa (Plot)']||'',iconSize:null})}).addTo(map);
+   }
+ }).addTo(map);
+ map.fitBounds(layer.getBounds());
+}).catch(err=>{console.error(err);alert('Không tìm thấy file Thua.geojson')});
+
+fetchGeoJSON('Line_lo.geojson','Line_lo(4).geojson','Line_lo(2).geojson').then(data=>{
+ L.geoJSON(data,{pane:'linePane',style:{color:'#fff',weight:4,opacity:1}}).addTo(map);
+ L.geoJSON(data,{pane:'linePane',style:{color:'#29B6F6',weight:2,opacity:1}}).addTo(map);
+}).catch(err=>console.log(err));
+
+fetchGeoJSON('Ranh_xn.geojson','Ranh_xn(4).geojson','Ranh_xn(2).geojson').then(data=>{
+ L.geoJSON(data,{pane:'ranhPane',style:{color:'#8B0000',weight:5,opacity:1,fill:false}}).addTo(map);
+}).catch(err=>console.log(err));
+
+fetchGeoJSON('Ten_xn.geojson','Ten_xn(4).geojson','Ten_xn(2).geojson').then(data=>{
+ const tenXN=L.geoJSON(data,{pointToLayer:(feature,latlng)=>L.marker(latlng,{icon:L.divIcon({className:'xn-label',html:feature.properties.Name||'',iconSize:[120,30]})})}).addTo(map);
+ tenXN.bringToFront();
+}).catch(err=>console.log(err));
+
+fetchGeoJSON('Text_lo.geojson','Text_lo(4).geojson','Text_lo(2).geojson').then(data=>{
+ const textLo=L.geoJSON(data,{pointToLayer:(feature,latlng)=>L.marker(latlng,{icon:L.divIcon({className:'lo-label',html:feature.properties.Name||'',iconSize:[22,22]})})}).addTo(map);
+ textLo.bringToFront();
+}).catch(err=>console.log(err));
+</script>
+</body>
+</html>
