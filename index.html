@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Plantation Quality Map</title>
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    height:100%;
+}
+
+#map{
+    width:100%;
+    height:100vh;
+}
+
+.popup-table{
+    border-collapse:collapse;
+    width:100%;
+}
+
+.popup-table td{
+    border:1px solid #ddd;
+    padding:4px 6px;
+    font-size:12px;
+    vertical-align:top;
+}
+
+.legend{
+    background:white;
+    padding:10px;
+    border-radius:8px;
+    box-shadow:0 0 8px rgba(0,0,0,.25);
+    line-height:22px;
+    font-size:13px;
+}
+.leaflet-interactive{
+    transition:none;
+}
+
+.leaflet-interactive:hover{
+}
+.xn-label{
+    color:#8B0000;
+    font-size:20px;
+    font-weight:700;
+    text-shadow:
+        1px 1px 2px white,
+        -1px -1px 2px white,
+        1px -1px 2px white,
+        -1px 1px 2px white;
+}
+.thua-label{
+    color:#000;
+    font-size:12px;
+    font-weight:700;
+    white-space:nowrap;
+    text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff,1px -1px 2px #fff,-1px 1px 2px #fff;
+}
+
+.lo-label{
+    width:22px;
+    height:22px;
+    line-height:22px;
+    text-align:center;
+
+    background:rgba(255,255,255,0.85);
+    border:1.5px solid #003366;
+    border-radius:50%;
+
+    color:#003366;
+    font-size:11px;
+    font-weight:700;
+
+    box-sizing:border-box;
+}
+</style>
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<script>
+
+const map = L.map('map');
+map.options.fadeAnimation = false;
+map.options.zoomAnimation = false;
+
+map.createPane('parcelShadowPane');
+map.getPane('parcelShadowPane').style.zIndex=390;
+map.getPane('parcelShadowPane').style.pointerEvents='none';
+map.createPane('texturePane');
+map.getPane('texturePane').style.zIndex=400;
+map.createPane('polygonPane');
+map.getPane('polygonPane').style.zIndex=445;
+map.createPane('linePane');
+map.getPane('linePane').style.zIndex=500;
+map.createPane('ranhPane');
+map.getPane('ranhPane').style.zIndex=600;
+map.createPane('labelPane');
+map.getPane('labelPane').style.zIndex=650;
+map.getPane('popupPane').style.zIndex=7000;
+
+L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{
+    attribution:'© OpenStreetMap'
+}
+).addTo(map);
+
+
+// =====================
+// LEGEND
+// =====================
+
+const legend = L.control({position:'bottomright'});
+
+legend.onAdd = function(){
+
+    const div = L.DomUtil.create('div','legend');
+
+div.innerHTML = `
+
+<span style="display:inline-block;width:14px;height:14px;background:#2E7D32;border:1px solid #666;"></span>
+ Tốt <span style="font-size:11px;color:#666;">(Good)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#7CB342;border:1px solid #666;"></span>
+ Trung bình <span style="font-size:11px;color:#666;">(Fair)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#D8F0C8;border:1px solid #666;"></span>
+ Kém <span style="font-size:11px;color:#666;">(Poor)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#B59B3A;border:1px solid #666;"></span>
+ Trồng mới <span style="font-size:11px;color:#666;">(New)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#D9D9D9;border:1px solid #666;"></span>
+ <span style="font-size:11px;color:#666;">No Data</span>
+
+`;
+return div;
+};
+legend.addTo(map);
+
+
+// =====================
+// POPUP
+// =====================
+
+function createPopup(properties){
+
+    let html = `
+    <div style="
+        max-height:350px;
+        overflow-y:auto;
+        overflow-x:hidden;
+    ">
+    <table class="popup-table">
+    `;
+
+    Object.entries(properties).forEach(([key,value])=>{
+
+        if(value !== null && value !== ''){
+
+            html += `
+            <tr>
+                <td><b>${key}</b></td>
+                <td>${value}</td>
+            </tr>
+            `;
+        }
+    });
+
+    html += `
+    </table>
+    </div>
+    `;
+
+    return html;
+}
+
+
+// =====================
+// COLOR
+// =====================
+
+function getQualityColor(feature){
+
+    const props = feature.properties;
+
+    const quality = String(
+        props["Chất lượng vườn (Plantation Quality)"] ||
+        props["Plantation Quality"] ||
+        props["CHAT_LUONG_VUON"] ||
+        props["CL_VUON"] ||
+        ''
+    ).toLowerCase();
+
+    // Tốt
+    if(
+        quality.includes('tốt') ||
+        quality.includes('tot') ||
+        quality.includes('good')
+    ){
+      return '#2E7D32';
+    }
+
+    // Trung bình
+    if(
+        quality.includes('trung bình') ||
+        quality.includes('trung binh') ||
+        quality.includes('fair') ||
+        quality === 'tb'
+    ){
+        return '#7CB342';
+    }
+
+    // Kém
+    if(
+        quality.includes('kém') ||
+        quality.includes('kem') ||
+        quality.includes('poor')
+    ){
+       return '#D8F0C8';
+    }
+
+    // Trồng mới 
+    if(
+        quality.includes('trồng mới') ||
+        quality.includes('trong moi') ||
+        quality.includes('new') ||
+        quality === 'tm'
+    ){
+        return '#B59B3A';
+    }
+
+    // Không có dữ liệu
+    return '#D9D9D9';
+}
+
+function getQualityOpacity(feature){
+
+    const props = feature.properties;
+
+    const quality = String(
+        props["Chất lượng vườn (Plantation Quality)"] ||
+        props["Plantation Quality"] ||
+        props["CHAT_LUONG_VUON"] ||
+        props["CL_VUON"] ||
+        ''
+    ).toLowerCase();
+
+    if(
+        quality.includes('trồng mới') ||
+        quality.includes('trong moi') ||
+        quality.includes('new') ||
+        quality === 'tm'
+    ){
+        return 0.16;
+    }
+
+    return 0.23;
+}
+
+// =====================
+// 3D PARCELS + LIGHTWEIGHT VECTOR BANANA ROWS
+// =====================
+
+// Không dùng ảnh PNG/base64. Mỗi kiểu luống chỉ được định nghĩa một lần trong
+// SVG <defs>, sau đó trình duyệt tái sử dụng cho mọi thửa nên nhẹ hơn nhiều.
+const BANANA_DETAIL_ZOOM = 17;
+const bananaTextureItems = [];
+
+const textureRenderer = L.svg({pane:'texturePane', padding:0.35});
+const tintRenderer = L.svg({pane:'polygonPane', padding:0.35});
+
+function installBananaPatterns(){
+    const svg = textureRenderer._container;
+    if(!svg || svg.querySelector('#bananaRowsVerticalSimple')) return;
+
+    const ns='http://www.w3.org/2000/svg';
+    const defs=document.createElementNS(ns,'defs');
+
+    // V5: bỏ hoàn toàn cảm giác "con rô" bằng cách dùng dải luống thẳng xuyên suốt.
+    // Màu chuyển sang xanh ô-liu và cỏ khô dịu hơn; rãnh hẹp vừa phải để tự nhiên hơn.
+    const ridgeGrad=document.createElementNS(ns,'linearGradient');
+    ridgeGrad.setAttribute('id','bananaRidgeGradientV5');
+    ridgeGrad.setAttribute('x1','0'); ridgeGrad.setAttribute('x2','1');
+    ridgeGrad.setAttribute('y1','0'); ridgeGrad.setAttribute('y2','0');
+    ridgeGrad.innerHTML=`
+      <stop offset="0" stop-color="#314724"/>
+      <stop offset=".10" stop-color="#4c6634"/>
+      <stop offset=".25" stop-color="#698544"/>
+      <stop offset=".44" stop-color="#89a65a"/>
+      <stop offset=".54" stop-color="#9cb76a"/>
+      <stop offset=".69" stop-color="#7f9a52"/>
+      <stop offset=".86" stop-color="#556f39"/>
+      <stop offset="1" stop-color="#344b27"/>
+    `;
+    defs.appendChild(ridgeGrad);
+
+    const furrowGrad=document.createElementNS(ns,'linearGradient');
+    furrowGrad.setAttribute('id','bananaFurrowGradientV5');
+    furrowGrad.setAttribute('x1','0'); furrowGrad.setAttribute('x2','1');
+    furrowGrad.setAttribute('y1','0'); furrowGrad.setAttribute('y2','0');
+    furrowGrad.innerHTML=`
+      <stop offset="0" stop-color="#9f9a71"/>
+      <stop offset=".5" stop-color="#bbb587"/>
+      <stop offset="1" stop-color="#98946b"/>
+    `;
+    defs.appendChild(furrowGrad);
+
+    function makePattern(id, angle, detailed){
+        const pattern=document.createElementNS(ns,'pattern');
+        pattern.setAttribute('id',id);
+        pattern.setAttribute('patternUnits','userSpaceOnUse');
+        pattern.setAttribute('width','66');
+        pattern.setAttribute('height','66');
+        if(angle) pattern.setAttribute('patternTransform',`rotate(${angle})`);
+
+        // Luống là một dải thẳng kéo xuyên qua mép tile để không tạo đầu bo hay hình thoi.
+        pattern.innerHTML=`
+          <rect width="66" height="66" fill="url(#bananaFurrowGradientV5)" opacity=".97"/>
+          <rect x="5.5" y="-8" width="55" height="82" fill="url(#bananaRidgeGradientV5)"/>
+
+          <path d="M5.5 -8V74 M60.5 -8V74"
+                stroke="#8b855f" stroke-width="1" opacity=".55"/>
+          <path d="M8.5 -8V74 M57.5 -8V74"
+                stroke="#21351f" stroke-width="1.15" opacity=".18"/>
+
+          <path d="M33 -8V74"
+                stroke="#e6edb3" stroke-width="1.2" opacity=".18"/>
+          <path d="M21 -8V74 M45 -8V74"
+                stroke="#223720" stroke-width=".9" opacity=".07"/>
+          <path d="M14 -8V74 M52 -8V74"
+                stroke="#d7df9c" stroke-width=".75" opacity=".07"/>
+        `;
+
+        // Zoom gần chỉ thêm vệt dọc mịn để bớt phẳng, tuyệt đối không thêm họa tiết vô lý.
+        if(detailed){
+            const detail=document.createElementNS(ns,'path');
+            detail.setAttribute('d','M11 -8V74 M17 -8V74 M25 -8V74 M41 -8V74 M49 -8V74 M55 -8V74');
+            detail.setAttribute('stroke','#d4dda0');
+            detail.setAttribute('stroke-width','.5');
+            detail.setAttribute('opacity','.06');
+            detail.setAttribute('fill','none');
+            pattern.appendChild(detail);
+        }
+
+        defs.appendChild(pattern);
+    }
+
+    makePattern('bananaRowsVerticalSimple',0,false);
+    makePattern('bananaRowsHorizontalSimple',90,false);
+    makePattern('bananaRowsVerticalDetailed',0,true);
+    makePattern('bananaRowsHorizontalDetailed',90,true);
+    svg.insertBefore(defs,svg.firstChild);
+}
+
+function parcelIsVertical(feature){
+    try{
+        const coords=feature.geometry.type==='Polygon'
+            ? feature.geometry.coordinates[0]
+            : feature.geometry.coordinates[0][0];
+        const xs=coords.map(p=>p[0]), ys=coords.map(p=>p[1]);
+        return (Math.max(...ys)-Math.min(...ys)) >= (Math.max(...xs)-Math.min(...xs));
+    }catch(e){
+        return true;
+    }
+}
+
+function parcelPattern(feature){
+    const orientation=parcelIsVertical(feature) ? 'Vertical' : 'Horizontal';
+    const detail=map.getZoom() >= BANANA_DETAIL_ZOOM ? 'Detailed' : 'Simple';
+    return `url(#bananaRows${orientation}${detail})`;
+}
+
+function styleTexturePath(layer, feature){
+    const apply=()=>{
+        installBananaPatterns();
+        if(layer._path){
+            layer._path.setAttribute('fill',parcelPattern(feature));
+            // Không dùng feDropShadow trên từng thửa; lớp parcelShadowPane bên dưới đã tạo nổi 3D.
+            layer._path.removeAttribute('filter');
+            layer._path.style.filter='none';
+        }
+    };
+    apply();
+    requestAnimationFrame(apply);
+}
+
+function refreshBananaDetail(){
+    bananaTextureItems.forEach(({layer,feature})=>{
+        if(layer._path) layer._path.setAttribute('fill',parcelPattern(feature));
+    });
+}
+
+map.on('zoomend',refreshBananaDetail);
+
+async function fetchGeoJSON(...names){
+    for(const name of names){
+        try{
+            const response=await fetch(name);
+            if(response.ok) return await response.json();
+        }catch(e){}
+    }
+    throw new Error('Không tải được '+names[0]);
+}
+
+// =====================
+// LOAD GEOJSON
+// =====================
+
+fetchGeoJSON('Thua.geojson','Thua(4).geojson','Thua(2).geojson')
+.then(data => {
+
+    // Shadow under each parcel is softened so the parcel boundary stays visible without looking too harsh.
+    L.geoJSON(data,{
+        pane:'parcelShadowPane',
+        interactive:false,
+        style:feature=>({
+            color:'#4b573d', weight:3.5, opacity:0.18,
+            fillColor:'#2a3623', fillOpacity:0.10,
+            lineJoin:'round', lineCap:'round'
+        })
+    }).addTo(map);
+
+    // Luống chuối vector nhẹ được lặp và cắt độc lập trong từng thửa.
+    const textureLayer=L.geoJSON(data,{
+        pane:'texturePane',
+        renderer:textureRenderer,
+        interactive:false,
+        style:{
+            color:'#b5c19e', weight:0.65, opacity:0.36,
+            fillColor:'#ffffff', fillOpacity:0.98,
+            lineJoin:'round', lineCap:'round'
+        },
+        onEachFeature:(feature,layer)=>{
+            bananaTextureItems.push({layer,feature});
+            layer.on('add',()=>styleTexturePath(layer,feature));
+        }
+    }).addTo(map);
+    installBananaPatterns();
+
+    // Quality tint remains, while parcel boundaries are toned down for a more natural look.
+    const layer = L.geoJSON(data,{
+        pane:'polygonPane',
+        renderer:tintRenderer,
+        style: feature => ({
+            color:'rgba(211,218,196,0.88)',
+            weight:1.2,
+            opacity:0.95,
+            fillColor:getQualityColor(feature),
+            fillOpacity:getQualityOpacity(feature),
+            lineJoin:'round',
+            lineCap:'round'
+        }),
+        onEachFeature:(feature,parcelLayer)=>{
+            parcelLayer.bindPopup(createPopup(feature.properties));
+
+            const bounds = parcelLayer.getBounds();
+            const nw = bounds.getNorthWest();
+            const pos = L.latLng(nw.lat - 0.00005, nw.lng + 0.00005);
+
+            L.marker(pos,{
+                pane:'labelPane',
+                interactive:false,
+                icon:L.divIcon({
+                    className:'thua-label',
+                    html:feature.properties["Thửa (Plot)"] || '',
+                    iconSize:null
+                })
+            }).addTo(map);
+        }
+    }).addTo(map);
+
+    map.fitBounds(layer.getBounds());
+})
+.catch(err => {
+    console.error(err);
+    alert('Không tìm thấy file Thua.geojson');
+});
+
+// =====================
+// LINE LO
+// =====================
+fetchGeoJSON('Line_lo.geojson','Line_lo(4).geojson','Line_lo(2).geojson')
+.then(data=>{
+ L.geoJSON(data,{pane:'linePane',style:{color:'#ffffff',weight:4,opacity:1}}).addTo(map);
+ L.geoJSON(data,{pane:'linePane',style:{color:'#29B6F6',weight:2,opacity:1}}).addTo(map);
+})
+.catch(err=>console.log(err));
+
+// =====================
+// RANH XN
+// =====================
+
+fetchGeoJSON('Ranh_xn.geojson','Ranh_xn(4).geojson','Ranh_xn(2).geojson')
+.then(data => {
+
+    const ranhXN = L.geoJSON(data,{
+        pane:'ranhPane',
+        style:{
+            color:'#8B0000',
+            weight:5,
+            opacity:1,
+            fill:false
+        }
+    }).addTo(map);
+
+
+})
+.catch(err => console.log(err));
+// =====================
+// TEN XN
+// =====================
+
+fetchGeoJSON('Ten_xn.geojson','Ten_xn(4).geojson','Ten_xn(2).geojson')
+.then(data => {
+
+    const tenXN = L.geoJSON(data,{
+        pointToLayer:(feature,latlng)=>{
+
+            return L.marker(latlng,{
+                icon:L.divIcon({
+                    className:'xn-label',
+                    html:feature.properties.Name || '',
+                    iconSize:[120,30]
+                })
+            });
+
+        }
+    }).addTo(map);
+
+    tenXN.bringToFront();
+
+})
+.catch(err => console.log(err));  
+// =====================
+// TEXT LO
+// =====================
+
+fetchGeoJSON('Text_lo.geojson','Text_lo(4).geojson','Text_lo(2).geojson')
+.then(data => {
+
+    const textLo = L.geoJSON(data,{
+        pointToLayer:(feature,latlng)=>{
+
+            return L.marker(latlng,{
+                icon:L.divIcon({
+                    className:'lo-label',
+                    html:feature.properties.Name || '',
+                    iconSize:[22,22]
+                })
+            });
+
+        }
+    }).addTo(map);
+
+    textLo.bringToFront();
+
+})
+.catch(err => console.log(err));
+
+</script>
+
+</body>
+</html>
