@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Plantation Quality Map</title>
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    height:100%;
+}
+
+#map{
+    width:100%;
+    height:100vh;
+}
+
+.popup-table{
+    border-collapse:collapse;
+    width:100%;
+}
+
+.popup-table td{
+    border:1px solid #ddd;
+    padding:4px 6px;
+    font-size:12px;
+    vertical-align:top;
+}
+
+.legend{
+    background:white;
+    padding:10px;
+    border-radius:8px;
+    box-shadow:0 0 8px rgba(0,0,0,.25);
+    line-height:22px;
+    font-size:13px;
+}
+.leaflet-interactive{
+    transition:none;
+}
+
+.leaflet-interactive:hover{
+}
+.xn-label{
+    color:#8B0000;
+    font-size:20px;
+    font-weight:700;
+    text-shadow:
+        1px 1px 2px white,
+        -1px -1px 2px white,
+        1px -1px 2px white,
+        -1px 1px 2px white;
+}
+.thua-label{
+    color:#000;
+    font-size:12px;
+    font-weight:700;
+    white-space:nowrap;
+    text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff,1px -1px 2px #fff,-1px 1px 2px #fff;
+}
+
+.lo-label{
+    width:22px;
+    height:22px;
+    line-height:22px;
+    text-align:center;
+
+    background:rgba(255,255,255,0.85);
+    border:1.5px solid #003366;
+    border-radius:50%;
+
+    color:#003366;
+    font-size:11px;
+    font-weight:700;
+
+    box-sizing:border-box;
+}
+</style>
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<script>
+
+const map = L.map('map');
+map.options.fadeAnimation = false;
+map.options.zoomAnimation = false;
+
+map.createPane('parcelShadowPane');
+map.getPane('parcelShadowPane').style.zIndex=390;
+map.getPane('parcelShadowPane').style.pointerEvents='none';
+map.createPane('polygonPane');
+map.getPane('polygonPane').style.zIndex=400;
+map.createPane('ridgePane');
+map.getPane('ridgePane').style.zIndex=455;
+map.getPane('ridgePane').style.pointerEvents='none';
+map.createPane('linePane');
+map.getPane('linePane').style.zIndex=500;
+map.createPane('ranhPane');
+map.getPane('ranhPane').style.zIndex=600;
+map.createPane('labelPane');
+map.getPane('labelPane').style.zIndex=650;
+map.getPane('popupPane').style.zIndex=7000;
+
+L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{
+    attribution:'© OpenStreetMap'
+}
+).addTo(map);
+
+
+// =====================
+// LEGEND
+// =====================
+
+const legend = L.control({position:'bottomright'});
+
+legend.onAdd = function(){
+
+    const div = L.DomUtil.create('div','legend');
+
+div.innerHTML = `
+
+<span style="display:inline-block;width:14px;height:14px;background:#2E7D32;border:1px solid #666;"></span>
+ Tốt <span style="font-size:11px;color:#666;">(Good)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#7CB342;border:1px solid #666;"></span>
+ Trung bình <span style="font-size:11px;color:#666;">(Fair)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#D8F0C8;border:1px solid #666;"></span>
+ Kém <span style="font-size:11px;color:#666;">(Poor)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#B59B3A;border:1px solid #666;"></span>
+ Trồng mới <span style="font-size:11px;color:#666;">(New)</span><br>
+
+<span style="display:inline-block;width:14px;height:14px;background:#D9D9D9;border:1px solid #666;"></span>
+ <span style="font-size:11px;color:#666;">No Data</span>
+
+`;
+return div;
+};
+legend.addTo(map);
+
+
+// =====================
+// POPUP
+// =====================
+
+function createPopup(properties){
+
+    let html = `
+    <div style="
+        max-height:350px;
+        overflow-y:auto;
+        overflow-x:hidden;
+    ">
+    <table class="popup-table">
+    `;
+
+    Object.entries(properties).forEach(([key,value])=>{
+
+        if(value !== null && value !== ''){
+
+            html += `
+            <tr>
+                <td><b>${key}</b></td>
+                <td>${value}</td>
+            </tr>
+            `;
+        }
+    });
+
+    html += `
+    </table>
+    </div>
+    `;
+
+    return html;
+}
+
+
+// =====================
+// COLOR
+// =====================
+
+function getQualityColor(feature){
+
+    const props = feature.properties;
+
+    const quality = String(
+        props["Chất lượng vườn (Plantation Quality)"] ||
+        props["Plantation Quality"] ||
+        props["CHAT_LUONG_VUON"] ||
+        props["CL_VUON"] ||
+        ''
+    ).toLowerCase();
+
+    // Tốt
+    if(
+        quality.includes('tốt') ||
+        quality.includes('tot') ||
+        quality.includes('good')
+    ){
+      return '#2E7D32';
+    }
+
+    // Trung bình
+    if(
+        quality.includes('trung bình') ||
+        quality.includes('trung binh') ||
+        quality.includes('fair') ||
+        quality === 'tb'
+    ){
+        return '#7CB342';
+    }
+
+    // Kém
+    if(
+        quality.includes('kém') ||
+        quality.includes('kem') ||
+        quality.includes('poor')
+    ){
+       return '#D8F0C8';
+    }
+
+    // Trồng mới 
+    if(
+        quality.includes('trồng mới') ||
+        quality.includes('trong moi') ||
+        quality.includes('new') ||
+        quality === 'tm'
+    ){
+        return '#B59B3A';
+    }
+
+    // Không có dữ liệu
+    return '#D9D9D9';
+}
+
+// =====================
+// 3D PARCELS + RIDGES
+// =====================
+
+// Canvas keeps thousands of generated ridge segments smooth and lightweight.
+const ridgeRenderer = L.canvas({pane:'ridgePane', padding:0.5, tolerance:2});
+
+function shadeColor(hex, percent){
+    const n = parseInt(hex.replace('#',''),16);
+    const amt = Math.round(2.55 * percent);
+    const r = Math.max(0,Math.min(255,(n >> 16) + amt));
+    const g = Math.max(0,Math.min(255,((n >> 8) & 0x00FF) + amt));
+    const b = Math.max(0,Math.min(255,(n & 0x0000FF) + amt));
+    return '#' + (0x1000000 + r*0x10000 + g*0x100 + b).toString(16).slice(1);
+}
+
+function polygonRing(feature){
+    if(!feature || !feature.geometry || feature.geometry.type !== 'Polygon') return [];
+    return feature.geometry.coordinates[0] || [];
+}
+
+// Intersections between a scan line and a polygon ring.
+function scanSegments(ring, axis, value){
+    const hits=[];
+    for(let i=0, j=ring.length-1; i<ring.length; j=i++){
+        const a=ring[j], b=ring[i];
+        const av = axis==='x' ? a[0] : a[1];
+        const bv = axis==='x' ? b[0] : b[1];
+        if((av <= value && bv > value) || (bv <= value && av > value)){
+            const t=(value-av)/(bv-av);
+            const other = axis==='x'
+                ? a[1] + t*(b[1]-a[1])
+                : a[0] + t*(b[0]-a[0]);
+            hits.push(other);
+        }
+    }
+    hits.sort((a,b)=>a-b);
+    const out=[];
+    for(let i=0;i+1<hits.length;i+=2){
+        if(Math.abs(hits[i+1]-hits[i])>1e-10){
+            out.push(axis==='x'
+                ? [[value,hits[i]],[value,hits[i+1]]]
+                : [[hits[i],value],[hits[i+1],value]]);
+        }
+    }
+    return out;
+}
+
+function addRidges(feature, baseColor){
+    const ring=polygonRing(feature);
+    if(ring.length<4) return;
+
+    const xs=ring.map(p=>p[0]), ys=ring.map(p=>p[1]);
+    const minX=Math.min(...xs), maxX=Math.max(...xs);
+    const minY=Math.min(...ys), maxY=Math.max(...ys);
+    const width=maxX-minX, height=maxY-minY;
+    if(width<=0 || height<=0) return;
+
+    // Luống chạy theo chiều dài của thửa. Scan line moves across the short axis.
+    const ridgeRunsNorthSouth = height >= width;
+    const scanAxis = ridgeRunsNorthSouth ? 'x' : 'y';
+    const min = ridgeRunsNorthSouth ? minX : minY;
+    const max = ridgeRunsNorthSouth ? maxX : maxY;
+    const shortSpan=max-min;
+
+    // Adaptive spacing: enough detail without overloading 560 parcels.
+    const targetRows=Math.max(4,Math.min(11,Math.round(shortSpan / Math.max(width,height) * 15)));
+    const spacing=shortSpan/(targetRows+1);
+    const dark=shadeColor(baseColor,-35);
+    const light=shadeColor(baseColor,18);
+
+    for(let r=1;r<=targetRows;r++){
+        const value=min+r*spacing;
+        const segments=scanSegments(ring,scanAxis,value);
+        segments.forEach(seg=>{
+            // Pull endpoints inward so ridges never cover parcel boundaries.
+            const a=seg[0], b=seg[1];
+            const dx=b[0]-a[0], dy=b[1]-a[1];
+            const len=Math.hypot(dx,dy);
+            if(len<spacing*0.8) return;
+            const inset=Math.min(len*0.12, spacing*0.55);
+            const ux=dx/len, uy=dy/len;
+            const p1=[a[1]+uy*inset, a[0]+ux*inset];
+            const p2=[b[1]-uy*inset, b[0]-ux*inset];
+
+            // Lower dark stroke = soil wall/shadow; upper light stroke = rounded crest.
+            L.polyline([p1,p2],{
+                renderer:ridgeRenderer, pane:'ridgePane', interactive:false,
+                color:dark, weight:7, opacity:0.42,
+                lineCap:'round', lineJoin:'round'
+            }).addTo(map);
+            L.polyline([p1,p2],{
+                renderer:ridgeRenderer, pane:'ridgePane', interactive:false,
+                color:light, weight:3.2, opacity:0.72,
+                lineCap:'round', lineJoin:'round'
+            }).addTo(map);
+        });
+    }
+}
+
+async function fetchGeoJSON(primary, fallback){
+    for(const name of [primary,fallback]){
+        try{
+            const response=await fetch(name);
+            if(response.ok) return await response.json();
+        }catch(e){}
+    }
+    throw new Error('Không tải được '+primary);
+}
+
+// =====================
+// LOAD GEOJSON
+// =====================
+
+fetchGeoJSON('Thua.geojson','Thua(2).geojson')
+.then(data => {
+
+    // A darker, slightly offset copy creates a clear raised parcel wall.
+    L.geoJSON(data,{
+        pane:'parcelShadowPane',
+        interactive:false,
+        style:feature=>({
+            color:shadeColor(getQualityColor(feature),-48),
+            weight:5, opacity:0.50, fillColor:shadeColor(getQualityColor(feature),-42),
+            fillOpacity:0.42, lineJoin:'round', lineCap:'round'
+        })
+    }).addTo(map);
+
+    const layer = L.geoJSON(data,{
+      pane:'polygonPane',
+
+      style: feature => ({
+
+    color:'rgba(255,255,255,0.96)',
+
+    weight:2.1,
+
+    opacity:1,
+
+    fillColor:getQualityColor(feature),
+
+    fillOpacity:0.88,
+
+    lineJoin:'round',
+
+    lineCap:'round'
+
+}),
+
+        onEachFeature:(feature,layer)=>{
+
+            layer.bindPopup(
+                createPopup(feature.properties)
+            );
+
+            addRidges(feature, getQualityColor(feature));
+
+            const bounds = layer.getBounds();
+            const nw = bounds.getNorthWest();
+            const pos = L.latLng(
+                nw.lat - 0.00005,
+                nw.lng + 0.00005
+            );
+
+            const thuaLabel = L.marker(pos,{
+                pane:'labelPane',
+                interactive:false,
+                icon:L.divIcon({
+                    className:'thua-label',
+                    html:feature.properties["Thửa (Plot)"] || '',
+                    iconSize:null
+                })
+            }).addTo(map);
+
+            
+
+        }
+
+    }).addTo(map);
+
+    map.fitBounds(layer.getBounds());
+
+})
+.catch(err => {
+ console.error(err);
+
+    alert(
+        'Không tìm thấy file Thua.geojson'
+    );
+
+});
+
+// =====================
+// LINE LO
+// =====================
+fetchGeoJSON('Line_lo.geojson','Line_lo(2).geojson')
+.then(data=>{
+ L.geoJSON(data,{pane:'linePane',style:{color:'#ffffff',weight:4,opacity:1}}).addTo(map);
+ L.geoJSON(data,{pane:'linePane',style:{color:'#29B6F6',weight:2,opacity:1}}).addTo(map);
+})
+.catch(err=>console.log(err));
+
+// =====================
+// RANH XN
+// =====================
+
+fetchGeoJSON('Ranh_xn.geojson','Ranh_xn(2).geojson')
+.then(data => {
+
+    const ranhXN = L.geoJSON(data,{
+        pane:'ranhPane',
+        style:{
+            color:'#8B0000',
+            weight:5,
+            opacity:1,
+            fill:false
+        }
+    }).addTo(map);
+
+
+})
+.catch(err => console.log(err));
+// =====================
+// TEN XN
+// =====================
+
+fetchGeoJSON('Ten_xn.geojson','Ten_xn(2).geojson')
+.then(data => {
+
+    const tenXN = L.geoJSON(data,{
+        pointToLayer:(feature,latlng)=>{
+
+            return L.marker(latlng,{
+                icon:L.divIcon({
+                    className:'xn-label',
+                    html:feature.properties.Name || '',
+                    iconSize:[120,30]
+                })
+            });
+
+        }
+    }).addTo(map);
+
+    tenXN.bringToFront();
+
+})
+.catch(err => console.log(err));  
+// =====================
+// TEXT LO
+// =====================
+
+fetchGeoJSON('Text_lo.geojson','Text_lo(2).geojson')
+.then(data => {
+
+    const textLo = L.geoJSON(data,{
+        pointToLayer:(feature,latlng)=>{
+
+            return L.marker(latlng,{
+                icon:L.divIcon({
+                    className:'lo-label',
+                    html:feature.properties.Name || '',
+                    iconSize:[22,22]
+                })
+            });
+
+        }
+    }).addTo(map);
+
+    textLo.bringToFront();
+
+})
+.catch(err => console.log(err));
+
+</script>
+
+</body>
+</html>
