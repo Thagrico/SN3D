@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bản đồ chất lượng vườn - Hướng dẫn bón phân</title>
+<style>
+html,body{margin:0;padding:0;height:100%;font-family:Tahoma,'Arial Unicode MS','Noto Sans',Arial,sans-serif;background:#eef2f3;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+#map{width:100%;height:100vh;background:#dfe7e9}
+#status{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:99999;max-width:min(92vw,760px);padding:7px 11px;border-radius:7px;background:rgba(255,255,255,.96);box-shadow:0 2px 10px rgba(0,0,0,.20);font-size:12px;color:#333;text-align:center}
+#status.ok{display:none}#status.warn{background:#fff7dc;color:#704b00}#status.error{background:#ffe8e8;color:#8b0000}
+.legend{background:#fff;padding:7px 8px;border-radius:7px;box-shadow:0 0 7px rgba(0,0,0,.22);line-height:18px;font-size:11px}
+.leaflet-interactive{transition:none}
+.xn-label{color:#8B0000;font-size:20px;font-weight:700;text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff,1px -1px 2px #fff,-1px 1px 2px #fff}
+.thua-label{color:#000;font-size:12px;font-weight:700;white-space:nowrap;text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff,1px -1px 2px #fff,-1px 1px 2px #fff}
+.lo-label{width:22px;height:22px;line-height:20px;text-align:center;background:rgba(255,255,255,.88);border:1.5px solid #036;border-radius:50%;color:#036;font-size:11px;font-weight:700;box-sizing:border-box}
+
+/* Popup ép gọn tối đa nhưng vẫn đọc rõ */
+.clean-plot-popup .leaflet-popup-content-wrapper{padding:0;border-radius:8px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.24)}
+.clean-plot-popup .leaflet-popup-content{margin:0;width:382px!important;max-width:calc(100vw - 46px);max-height:74vh;overflow:auto}
+.clean-plot-popup .leaflet-popup-close-button{width:24px!important;height:24px!important;line-height:22px!important;font-size:18px!important;color:#444!important;background:rgba(255,255,255,.94)!important;border-radius:50%;right:4px!important;top:4px!important;z-index:5}
+.map-popup-table-wrap{padding:0}
+.popup-table{border-collapse:collapse;width:100%;table-layout:fixed;background:#fff}
+.popup-table td{border:0;border-bottom:1px solid #e5e9e6;padding:4px 6px;font-size:11.5px;line-height:1.18;vertical-align:top;color:#20252a;overflow-wrap:anywhere;word-break:normal}
+.popup-table td:first-child{width:46%;font-weight:600;background:#f3f7f4;color:#263b2b}
+.popup-table td:last-child{font-weight:400;background:#fff}
+
+.fert-box{border-top:2px solid #91cfdb;background:#fff}
+.fert-title{padding:4px 29px 4px 6px;background:#cdeff6;color:#18343a;line-height:1.05}
+.fert-title-vi{font-size:11px;font-weight:700;white-space:nowrap}
+.fert-title-en{display:inline;font-size:7.5px;font-weight:400;opacity:.9;margin-left:4px;white-space:nowrap}
+.fert-title-unit{font-size:8px;font-weight:400;opacity:.92}
+.fert-table-wrap{overflow-x:auto;max-width:100%;background:#fff;overscroll-behavior-x:contain}
+.fert-table{border-collapse:separate;border-spacing:0;min-width:936px;font-size:8px;line-height:1.02;table-layout:fixed}
+.fert-table th,.fert-table td{box-sizing:border-box;border-right:1px solid #dfe5e0;border-bottom:1px solid #dfe5e0;padding:2px 1px;text-align:center;white-space:nowrap;background:#fff;color:#222;min-width:32px;width:32px;height:23px}
+.fert-table thead th{position:sticky;top:0;z-index:2;background:#cdeff6;color:#18343a;font-weight:700;border-top:1px solid #91cfdb;height:26px}
+.fert-table th:first-child,.fert-table td:first-child{position:sticky;left:0;z-index:1;text-align:left;min-width:130px;width:130px;max-width:130px;white-space:normal;background:#fff;border-left:1px solid #dfe5e0;overflow:visible;padding:3px 4px}
+.fert-table thead th:first-child{z-index:3;background:#cdeff6}
+.fert-line-vi{font-size:8.5px;font-weight:700;color:#263b2b;line-height:1.08;white-space:normal;overflow-wrap:anywhere}
+.fert-line-en{font-size:6.7px;font-weight:400;color:#69736c;line-height:1.05;margin-top:1px;white-space:normal;overflow-wrap:anywhere}
+.fert-table .header-en{display:block;font-size:6.8px;color:#5e6b61;font-weight:400;margin-top:1px}
+.fert-table td.changed-up,.fert-table td.changed-down,.fert-table td.unchanged,.fert-table td.tm-cell{background:#fff;color:#222;font-weight:400}
+.fert-table thead th.tm-cell{background:#cdeff6;color:#18343a;font-weight:700}
+
+@media (max-width:700px){
+ .clean-plot-popup .leaflet-popup-content{width:min(326px,calc(100vw - 42px))!important;max-width:calc(100vw - 42px)!important;max-height:66vh}
+ .popup-table td{font-size:10.8px;line-height:1.15;padding:3px 5px}.popup-table td:first-child{width:49%}
+ .fert-title{padding:4px 27px 4px 5px}.fert-title-vi{font-size:10px}.fert-title-en{font-size:7px}.fert-title-unit{font-size:7.5px}
+ .fert-table{min-width:880px;font-size:7.5px}.fert-table th,.fert-table td{min-width:30px;width:30px;padding:2px 1px}
+ .fert-table th:first-child,.fert-table td:first-child{min-width:112px;width:112px;max-width:112px}
+ .fert-line-vi{font-size:7.8px}.fert-line-en{font-size:6.2px}
+}
+</style>
+</head>
+<body>
+<div id="status">Đang khởi tạo bản đồ…</div>
+<div id="map"></div>
+<script>
+(function(){
+'use strict';
+const statusBox=document.getElementById('status');
+function status(msg,type=''){statusBox.textContent=msg;statusBox.className=type}
+function loadCss(url){return new Promise((resolve,reject)=>{const l=document.createElement('link');l.rel='stylesheet';l.href=url;l.onload=resolve;l.onerror=reject;document.head.appendChild(l)})}
+function loadScript(url,timeout=9000){return new Promise((resolve,reject)=>{const s=document.createElement('script');let done=false;const t=setTimeout(()=>{if(!done){done=true;s.remove();reject(new Error('Timeout '+url))}},timeout);s.src=url;s.onload=()=>{if(!done){done=true;clearTimeout(t);resolve()}};s.onerror=()=>{if(!done){done=true;clearTimeout(t);reject(new Error('Không tải được '+url))}};document.head.appendChild(s)})}
+async function loadLeaflet(){
+ const cssUrls=['https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css','https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'];
+ const jsUrls=['https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js','https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
+ for(const u of cssUrls){try{await loadCss(u);break}catch(e){}}
+ for(const u of jsUrls){try{await loadScript(u);if(window.L)return}catch(e){}}
+ throw new Error('Không tải được thư viện Leaflet. Hãy kiểm tra kết nối mạng.');
+}
+function fetchJson(url,timeout=12000){return new Promise((resolve,reject)=>{const c=new AbortController();const t=setTimeout(()=>c.abort(),timeout);fetch(url,{cache:'no-store',signal:c.signal}).then(r=>{if(!r.ok)throw new Error(r.status+' '+r.statusText);return r.json()}).then(v=>{clearTimeout(t);resolve(v)}).catch(e=>{clearTimeout(t);reject(e)})})}
+async function fetchFirst(candidates){let last;for(const name of candidates){try{return {data:await fetchJson(name),name}}catch(e){last=e}}throw new Error(candidates[0]+': '+(last?.message||'không tìm thấy'))}
+function escapeHtml(v){return String(v).normalize('NFC').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function stripAccents(v){return String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()}
+function normalizedKey(v){return stripAccents(String(v)).replace(/[()]/g,' ').replace(/[._/\\-]+/g,' ').replace(/\s+/g,' ').trim()}
+function sentenceCase(v){const s=String(v).trim().replace(/[_-]+/g,' ').replace(/\s+/g,' ');if(!s)return '';if(/^dp3$/i.test(s))return 'DP3';if(/^ec$/i.test(s))return 'EC';if(/^om$/i.test(s))return 'OM';return s.charAt(0).toUpperCase()+s.slice(1).toLowerCase()}
+function formatFieldName(key){
+ const raw=String(key).trim(),n=normalizedKey(raw);
+ const names={
+  'kinh do':'Kinh độ (Longitude)','longitude':'Kinh độ (Longitude)','long':'Kinh độ (Longitude)','lng':'Kinh độ (Longitude)',
+  'vi do':'Vĩ độ (Latitude)','latitude':'Vĩ độ (Latitude)','lat':'Vĩ độ (Latitude)',
+  'xi nghiep':'Xí nghiệp (Enterprise)','enterprise':'Xí nghiệp (Enterprise)','xn':'Xí nghiệp (Enterprise)',
+  'nong truong':'Nông trường (Farm)','farm':'Nông trường (Farm)','nt':'Nông trường (Farm)',
+  'doi':'Đội (Team)','team':'Đội (Team)','lo':'Lô (Lot)','lot':'Lô (Lot)','block':'Lô (Lot)','thua':'Thửa (Plot)','plot':'Thửa (Plot)',
+  'do day tang dat min':'Độ dày tầng đất tối thiểu (Minimum soil depth)','do day tang dat':'Độ dày tầng đất (Soil depth)','do day':'Độ dày (Thickness)',
+  'do doc':'Độ dốc (Slope)','do cao':'Độ cao (Elevation)','do xop':'Độ xốp (Porosity)','xop':'Độ xốp (Porosity)',
+  'chat luong vuon':'Chất lượng vườn (Plantation Quality)','plantation quality':'Chất lượng vườn (Plantation Quality)','cl vuon':'Chất lượng vườn (Plantation Quality)','clvuon':'Chất lượng vườn (Plantation Quality)',
+  'mat do':'Mật độ (Density)','density':'Mật độ (Density)','giong':'Giống (Variety)','variety':'Giống (Variety)',
+  'luong mua':'Lượng mưa (Rainfall)','luogn mua':'Lượng mưa (Rainfall)','rainfall':'Lượng mưa (Rainfall)','mua mua':'Mùa mưa (Rainy season)','mua kho':'Mùa khô (Dry season)',
+  't max':'Nhiệt độ tối cao (T-max)','tmax':'Nhiệt độ tối cao (T-max)','t min':'Nhiệt độ tối thấp (T-min)','tmin':'Nhiệt độ tối thấp (T-min)','t tb':'Nhiệt độ trung bình (T-mean)','ttb':'Nhiệt độ trung bình (T-mean)','t mean':'Nhiệt độ trung bình (T-mean)','tmean':'Nhiệt độ trung bình (T-mean)',
+  'ngap':'Ngập úng (Waterlogging)','ngap ung':'Ngập úng (Waterlogging)','do am':'Độ ẩm (Moisture)','doam':'Độ ẩm (Moisture)',
+  'tpcg':'TPCG (Soil Texture)','tp cg':'TPCG (Soil Texture)','thanh phan co gioi':'TPCG (Soil Texture)',
+  'dien tich':'Diện tích (Area)','dientich':'Diện tích (Area)','dt':'Diện tích (Area)','area':'Diện tích (Area)',
+  'ec':'EC','om':'OM','ph':'pH','phh2o':'pH H₂O','ph h2o':'pH H₂O','ph nuoc':'pH H₂O','do ph':'pH','n':'N','p':'P','k':'K','mg':'Mg','zn':'Zn','b':'B','dp3':'DP3'
+ };
+ if(names[n])return names[n];
+ return sentenceCase(raw);
+}
+function monthEnglish(num){return ['','January','February','March','April','May','June','July','August','September','October','November','December'][num]||''}
+function formatMonthValue(raw){const s=stripAccents(raw).replace(/\s+/g,' ').trim();let m=s.match(/^(?:thang|t)?\s*(1[0-2]|[1-9])$/);if(m){const n=Number(m[1]);return `Tháng ${n} (${monthEnglish(n)})`}m=s.match(/^(?:thang|t)?\s*(1[0-2]|[1-9])\s*[-–—/]\s*(?:thang|t)?\s*(1[0-2]|[1-9])$/);if(m){const a=Number(m[1]),b=Number(m[2]);return `Tháng ${a}–${b} (${monthEnglish(a)}–${monthEnglish(b)})`}return null}
+function normalizeNumericToken(token){
+ let t=String(token).replace(/\s+/g,'');const sign=t.startsWith('-')?'-':t.startsWith('+')?'+':'';if(sign)t=t.slice(1);
+ if(!/[.,]/.test(t))return sign+t;
+ const dots=(t.match(/\./g)||[]).length,commas=(t.match(/,/g)||[]).length;
+ if(dots&&commas){const dec=t.lastIndexOf('.')>t.lastIndexOf(',')?'.':',';const thousands=dec==='.'?',':'.';t=t.split(thousands).join('');if(dec===',')t=t.replace(',','.');return sign+t}
+ if(commas){const p=t.split(',');if(commas>1&&p.slice(1).every(x=>x.length===3))return sign+p.join('');if(commas===1){const [a,b]=p;if(b.length===3&&a!=='0')return sign+a+b;return sign+a+'.'+b}}
+ return sign+t;
+}
+function normalizeNumericText(raw){return String(raw).replace(/[-+]?\d[\d.,]*/g,m=>normalizeNumericToken(m))}
+function normalizeDegreeAndUnits(raw,key){let s=String(raw).normalize('NFC').trim(),kn=normalizedKey(key);s=s.replace(/\b(?:o|0|º|°)\s*c\b/gi,'°C');s=s.replace(/(-?\d+(?:[.,]\d+)?)\s*(?:o|0|º|°)\s*c\b/gi,'$1 °C');if((kn.includes('nhiet do')||/^t\s*(min|max|tb|mean)$/.test(kn))&&/^[-+]?\d+(?:[.,]\d+)?$/.test(s))s+=' °C';s=s.replace(/\s*(cm|mm|km|ha|m²|m2|%|ppm|mg\/kg)\b/gi,' $1');s=s.replace(/\bm2\b/gi,'m²');return s}
+function compactComparators(s){return String(s).replace(/([<>≤≥])\s+/g,'$1')}
+function formatValue(value,key=''){
+ if(value===null||typeof value==='undefined')return '';
+ let raw=String(value).normalize('NFC').trim();if(!raw)return '';
+ const n=stripAccents(raw).replace(/\s+/g,' ').trim(),kn=normalizedKey(key);
+ if(kn.includes('thang')||kn.includes('mua mua')||kn.includes('mua kho')){const month=formatMonthValue(raw);if(month)return month}
+ const exact={'tot':'Tốt (Good)','good':'Tốt (Good)','trung binh':'Trung bình (Fair)','tb':'Trung bình (Fair)','fair':'Trung bình (Fair)','kem':'Kém (Poor)','poor':'Kém (Poor)','trong moi':'Trồng mới (New)','tm':'Trồng mới (New)','new':'Trồng mới (New)','cat':'Cát (Sand)','set':'Sét (Clay)','thit':'Thịt (Loam)','set cat':'Sét cát (Sandy clay)','cat set':'Cát sét (Clayey sand)','set thit':'Sét thịt (Clay loam)','thit cat':'Thịt cát (Sandy loam)'};
+ if(exact[n])return exact[n];
+ return compactComparators(normalizeNumericText(normalizeDegreeAndUnits(raw,key)));
+}
+function collectProperties(feature){const out={};function add(obj,prefix=''){if(!obj||typeof obj!=='object'||Array.isArray(obj))return;Object.entries(obj).forEach(([k,v])=>{if(['type','geometry','bbox'].includes(k)||String(k).startsWith('__'))return;const key=prefix?prefix+' / '+k:k;if(v&&typeof v==='object'&&!Array.isArray(v))add(v,key);else out[key]=Array.isArray(v)?v.join(', '):v})}add(feature&&feature.properties);if(!Object.keys(out).length)add(feature&&feature.attributes);return out}
+
+/* PHÂN CẤP DÙNG ĐÚNG ĐƠN VỊ DỮ LIỆU THỬA */
+const SOIL_LIMITS={
+ OM:{low:2,high:4,unit:'%'},
+ N:{low:100,high:200,unit:'ppm'},
+ P:{low:100,high:150,unit:'ppm'},
+ K:{low:150,high:250,unit:'ppm'}
+};
+const STAGES=['TM',...Array.from({length:24},(_,i)=>'T'+(i+1))];
+function nums(v){return v.map(x=>Number(x)||0)}
+const FERTILIZER_PROTOCOL=[
+ {name:'Vôi',en:'Lime',indicator:null,locked:true,doses:nums([0,500,0,0,0,0,0,0,0,0,0,0,0,500,0,0,0,0,0,0,0,0,0,0,0])},
+ {name:'Phân hữu cơ',en:'Organic fertilizer',indicator:'OM',locked:false,doses:nums([25000,0,0,0,0,5000,0,0,0,0,0,0,0,0,0,0,0,5000,0,0,0,0,0,0,0])},
+ {name:'Biofert M',en:'Biofert M',indicator:null,locked:true,doses:nums([11.5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])},
+ {name:'PCT',en:'PCT',indicator:null,locked:true,doses:nums([5.8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])},
+ {name:'NPK 15-15-15',en:'NPK 15-15-15',indicator:'P',locked:false,doses:nums([50,30,30,30,65,65,65,65,65,30,65,65,65,55,55,30,55,55,55,55,55,30,55,55,55])},
+ {name:'Lân nung chảy',en:'Fused phosphate',indicator:null,locked:true,doses:nums([150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])},
+ {name:'Urê',en:'Urea',indicator:'N',locked:false,doses:nums([0,14,14,14,30,30,30,0,30,14,30,30,30,20,20,20,20,20,20,20,20,20,20,20,20])},
+ {name:'KCl',en:'Potassium chloride',indicator:'K',locked:false,doses:nums([0,15,15,32,45,45,45,45,45,32,45,45,45,40,40,32,40,40,40,40,40,32,40,40,40])},
+ {name:'K₂SO₄',en:'Potassium sulfate',indicator:'K',locked:false,doses:nums([0,0,0,30,0,0,0,0,0,30,0,0,0,0,0,30,0,0,0,0,30,0,0,0,0])},
+ {name:'MgSO₄·7H₂O',en:'Magnesium sulfate',indicator:'Mg',locked:true,doses:nums([0,0,0,0,20,20,20,0,20,20,20,0,0,0,0,0,20,20,20,0,20,20,20,0,0])},
+ {name:'ZnSO₄·7H₂O',en:'Zinc sulfate',indicator:'Zn',locked:true,doses:nums([15,0,0,0,0,0,25,0,0,0,0,0,25,0,0,0,0,0,25,0,0,0,0,0,25])},
+ {name:'FertiBor',en:'Boron fertilizer',indicator:'B',locked:true,doses:nums([0,0,0,0,5,0,0,0,0,0,5,0,0,0,0,0,5,0,0,0,0,0,5,0,0])}
+];
+const FERTILIZER_GRADE={npkN:.15,npkK:.15,ureaN:.46,kclK:.60};
+const PROPERTY_ALIASES={OM:['OM','ORGANIC MATTER','CHAT HUU CO','HUU CO'],N:['N','NITROGEN','N TONG SO','TOTAL N'],P:['P','P2O5','PHOSPHORUS'],K:['K','K2O','POTASSIUM','KALI'],PH:['PHH2O','PH H2O','PH NƯỚC','PH NUOC','PH WATER','PH','ĐỘ PH','DO PH']};
+function findProperty(properties,indicator){const aliases=(PROPERTY_ALIASES[indicator]||[indicator]).map(normalizedKey);for(const [k,v] of Object.entries(properties||{})){const nk=normalizedKey(k);if(aliases.some(a=>nk===a||nk.endsWith(' '+a)||nk.includes(a+' dat')||nk.includes(a+' soil')))return {key:k,value:v}}return null}
+function parseNumber(raw){if(raw===null||typeof raw==='undefined')return null;if(typeof raw==='number'&&Number.isFinite(raw))return raw;const m=String(raw).replace(/\s/g,'').match(/[-+]?\d+(?:[.,]\d+)?/);if(!m)return null;const n=Number(m[0].replace(',','.'));return Number.isFinite(n)?n:null}
+function classifyText(raw){const s=stripAccents(raw);if(/(^|\b)(thap|low|poor)(\b|$)/.test(s))return 'low';if(/(^|\b)(trung binh|tb|medium|fair|average)(\b|$)/.test(s))return 'medium';if(/(^|\b)(cao|high|rich)(\b|$)/.test(s))return 'high';return null}
+function getClassification(properties,indicator){
+ const hit=findProperty(properties,indicator);if(!hit)return {level:'unknown',factor:1,display:'Không có dữ liệu',raw:null,value:null};
+ const textLevel=classifyText(hit.value);if(textLevel)return {level:textLevel,factor:textLevel==='low'?1.05:textLevel==='high'?.95:1,display:compactComparators(String(hit.value)),raw:hit.value,value:null};
+ const value=parseNumber(hit.value);if(value===null)return {level:'unknown',factor:1,display:compactComparators(String(hit.value)),raw:hit.value,value:null};
+ const lim=SOIL_LIMITS[indicator];const level=value<lim.low?'low':value>lim.high?'high':'medium';
+ return {level,factor:level==='low'?1.05:level==='high'?.95:1,display:compactComparators(String(hit.value)),raw:hit.value,value};
+}
+function limeRateFromPH(value){if(!Number.isFinite(value))return null;if(value<5)return 1000;if(value<=6)return 500;return 0}
+function getLimeRecommendation(properties){
+ const hit=findProperty(properties,'PH');if(!hit)return {dose:null,level:'unknown',vi:'Chưa có pH: chưa xác định vôi',en:'No pH: lime not determined'};
+ const value=parseNumber(hit.value);if(value===null)return {dose:null,level:'unknown',vi:'pH không hợp lệ',en:'Invalid pH'};
+ const dose=limeRateFromPH(value);if(value<5)return {dose,level:'very-acid',vi:'pH<5: 1000 g/cây',en:'pH<5: 1000 g/tree'};
+ if(value<=6)return {dose,level:'slightly-acid',vi:'pH 5–6: 500 g/cây',en:'pH 5–6: 500 g/tree'};
+ return {dose,level:'neutral-alkaline',vi:'pH>6: không bón',en:'pH>6: no lime'};
+}
+function adjustmentText(item,c,classes){
+ if(item.locked)return null;const pChanged=classes.P&&(classes.P.level==='low'||classes.P.level==='high');const offset=pChanged&&(item.name==='Urê'||item.name==='KCl');const viOffset=offset?'; bù NPK':'';const enOffset=offset?'; NPK offset':'';
+ if(c.level==='low')return {vi:`${item.indicator} thấp: +5%${viOffset}`,en:`Low ${item.indicator}: +5%${enOffset}`};
+ if(c.level==='high')return {vi:`${item.indicator} cao: -5%${viOffset}`,en:`High ${item.indicator}: -5%${enOffset}`};
+ if(c.level==='medium')return {vi:`${item.indicator} TB: theo quy trình${viOffset}`,en:`Average ${item.indicator}: standard${enOffset}`};
+ return {vi:`${item.indicator}: theo quy trình${viOffset}`,en:`${item.indicator}: standard${enOffset}`};
+}
+function formatPlainNumber(v,maxDecimals=2){if(!Number.isFinite(v))return '';const p=Math.pow(10,maxDecimals);const r=Math.round((v+Number.EPSILON)*p)/p;return String(Object.is(r,-0)?0:r)}
+function formatDose(v){if(!Number.isFinite(v)||Math.abs(v)<.000001)return '';return formatPlainNumber(v,2)}
+function createFertilizerRecommendation(properties){
+ const classes={};['OM','N','P','K'].forEach(k=>classes[k]=getClassification(properties,k));
+ const lime=getLimeRecommendation(properties),byName=Object.fromEntries(FERTILIZER_PROTOCOL.map(x=>[x.name,x])),adjusted={};
+ FERTILIZER_PROTOCOL.forEach(x=>adjusted[x.name]=x.doses.slice());
+ adjusted['Vôi']=byName['Vôi'].doses.map((base,i)=>i===0||base===0?0:(lime.dose===null?0:lime.dose));
+ for(let i=1;i<STAGES.length;i++){
+  const omF=classes.OM.factor||1,nF=classes.N.factor||1,pF=classes.P.factor||1,kF=classes.K.factor||1;
+  const organic=byName['Phân hữu cơ'].doses[i]||0,npk=byName['NPK 15-15-15'].doses[i]||0,urea=byName['Urê'].doses[i]||0,kcl=byName['KCl'].doses[i]||0,k2so4=byName['K₂SO₄'].doses[i]||0;
+  const adjNpk=npk===0?0:npk*pF,delta=adjNpk-npk;
+  adjusted['Phân hữu cơ'][i]=organic===0?0:organic*omF;
+  adjusted['NPK 15-15-15'][i]=adjNpk;
+  adjusted['Urê'][i]=urea===0?0:Math.max(0,urea*nF-delta*FERTILIZER_GRADE.npkN/FERTILIZER_GRADE.ureaN);
+  adjusted['KCl'][i]=kcl===0?0:Math.max(0,kcl*kF-delta*FERTILIZER_GRADE.npkK/FERTILIZER_GRADE.kclK);
+  adjusted['K₂SO₄'][i]=k2so4===0?0:k2so4*kF;
+ }
+ let html='<div class="fert-box"><div class="fert-title"><span class="fert-title-vi">Hướng dẫn bón phân</span><span class="fert-title-en">Fertilizer recommendation</span><span class="fert-title-unit"> · g/cây</span></div><div class="fert-table-wrap"><table class="fert-table"><thead><tr><th>Loại phân<span class="header-en">Fertilizer</span></th>';
+ STAGES.forEach((s,i)=>html+=`<th class="${i===0?'tm-cell':''}">${s}</th>`);html+='</tr></thead><tbody>';
+ FERTILIZER_PROTOCOL.forEach(item=>{
+  const c=item.locked?{level:'locked',factor:1}:(classes[item.indicator]||{level:'unknown',factor:1});const note=item.name==='Vôi'?{vi:lime.vi,en:lime.en}:adjustmentText(item,c,classes);
+  const vi=note?`${item.name} · ${note.vi}`:item.name,en=note?`${item.en} · ${note.en}`:item.en;
+  html+=`<tr><td><div class="fert-line-vi">${escapeHtml(vi)}</div><div class="fert-line-en">${escapeHtml(en)}</div></td>`;
+  adjusted[item.name].forEach((v,i)=>html+=`<td class="${i===0?'tm-cell':Math.abs(v-item.doses[i])>.000001?'changed-up':'unchanged'}">${formatDose(v)}</td>`);html+='</tr>';
+ });
+ return html+'</tbody></table></div></div>';
+}
+
+/* Kiểm tra biên và 81 tổ hợp trước khi chạy bản đồ */
+function validateAll(){
+ const tests=[
+  ['N',99,'low'],['N',100,'medium'],['N',200,'medium'],['N',203,'high'],
+  ['P',99,'low'],['P',100,'medium'],['P',150,'medium'],['P',151,'high'],
+  ['K',149,'low'],['K',150,'medium'],['K',250,'medium'],['K',251,'high'],
+  ['OM',1.99,'low'],['OM',2,'medium'],['OM',4,'medium'],['OM',4.01,'high']
+ ];
+ tests.forEach(([k,v,e])=>{const l=v<SOIL_LIMITS[k].low?'low':v>SOIL_LIMITS[k].high?'high':'medium';if(l!==e)throw new Error(`Sai phân cấp ${k} tại ${v}`)});
+ [[4.99,1000],[5,500],[6,500],[6.01,0]].forEach(([v,e])=>{if(limeRateFromPH(v)!==e)throw new Error(`Sai vôi tại pH ${v}`)});
+ const factors=[.95,1,1.05],bn=Object.fromEntries(FERTILIZER_PROTOCOL.map(x=>[x.name,x]));
+ for(const omF of factors)for(const nF of factors)for(const pF of factors)for(const kF of factors)for(let i=1;i<STAGES.length;i++){
+  const npk=bn['NPK 15-15-15'].doses[i]||0,urea=bn['Urê'].doses[i]||0,kcl=bn['KCl'].doses[i]||0,k2=bn['K₂SO₄'].doses[i]||0,org=bn['Phân hữu cơ'].doses[i]||0;
+  const an=npk*pF,d=an-npk,au=urea===0?0:Math.max(0,urea*nF-d*.15/.46),ak=kcl===0?0:Math.max(0,kcl*kF-d*.15/.60),a2=k2===0?0:k2*kF,ao=org===0?0:org*omF;
+  if((org===0)!==(ao===0)||(npk===0)!==(an===0)||(urea===0)!==(au===0)||(kcl===0)!==(ak===0)||(k2===0)!==(a2===0))throw new Error('Sai thời điểm bón '+STAGES[i]);
+  if(an>68.250001)throw new Error('NPK vượt 68.25 g/cây');
+ }
+}
+function createPopup(feature){const p=collectProperties(feature),entries=Object.entries(p).filter(([,v])=>v!==null&&v!==''&&typeof v!=='undefined');let html='<table class="popup-table">';if(!entries.length)html+='<tr><td colspan="2">Thửa này không có dữ liệu.</td></tr>';else entries.forEach(([k,v])=>html+=`<tr><td>${escapeHtml(formatFieldName(k))}</td><td>${escapeHtml(formatValue(v,k))}</td></tr>`);return html+'</table>'+createFertilizerRecommendation(p)}
+function getQualityColor(feature){const p=feature.properties||{},q=String(p['Chất lượng vườn (Plantation Quality)']||p['Plantation Quality']||p['CHAT_LUONG_VUON']||p['CL_VUON']||p['CL VUON']||'').toLowerCase();if(q.includes('tốt')||q.includes('tot')||q.includes('good'))return '#2E7D32';if(q.includes('trung bình')||q.includes('trung binh')||q.includes('fair')||q==='tb')return '#7CB342';if(q.includes('kém')||q.includes('kem')||q.includes('poor'))return '#D8F0C8';if(q.includes('trồng mới')||q.includes('trong moi')||q.includes('new')||q==='tm')return '#B59B3A';return '#D9D9D9'}
+function getPlotLabel(p){for(const k of ['Thửa (Plot)','THUA','Thua','thua','Plot'])if(p&&p[k]!=null)return p[k];return ''}
+async function init(){
+ try{validateAll();await loadLeaflet()}catch(e){status(e.message,'error');return}
+ const map=L.map('map',{fadeAnimation:false,zoomAnimation:false,markerZoomAnimation:false,preferCanvas:true}).setView([11,106],7);
+ [['polygonPane',400],['linePane',500],['ranhPane',600],['labelPane',650]].forEach(([n,z])=>{map.createPane(n);map.getPane(n).style.zIndex=z});
+ ['linePane','ranhPane','labelPane'].forEach(n=>map.getPane(n).style.pointerEvents='none');map.getPane('polygonPane').style.pointerEvents='auto';map.getPane('popupPane').style.zIndex=7000;
+ const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',updateWhenIdle:true,keepBuffer:1,maxZoom:19}).addTo(map);
+ const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri',maxZoom:19});
+ L.control.layers({'Đường phố (Street)':osm,'Vệ tinh (Satellite)':sat},null,{position:'topleft',collapsed:true}).addTo(map);
+ const legend=L.control({position:'bottomright'});legend.onAdd=()=>{const d=L.DomUtil.create('div','legend');d.innerHTML='<span style="display:inline-block;width:12px;height:12px;background:#2E7D32;border:1px solid #666"></span> Tốt (Good)<br><span style="display:inline-block;width:12px;height:12px;background:#7CB342;border:1px solid #666"></span> TB (Fair)<br><span style="display:inline-block;width:12px;height:12px;background:#D8F0C8;border:1px solid #666"></span> Kém (Poor)<br><span style="display:inline-block;width:12px;height:12px;background:#B59B3A;border:1px solid #666"></span> TM (New)';return d};legend.addTo(map);
+ const jobs=[
+  ['Thửa',['Thua(14).geojson','Thua(13).geojson','Thua.geojson','thua.geojson','Thua(12).geojson']],
+  ['Đường lô',['Line_lo(13).geojson','Line_lo(12).geojson','Line_lo.geojson','line_lo.geojson','Line_lo(9).geojson']],
+  ['Ranh xí nghiệp',['Ranh_xn(13).geojson','Ranh_xn(12).geojson','Ranh_xn.geojson','ranh_xn.geojson','Ranh_xn(9).geojson']],
+  ['Tên xí nghiệp',['Ten_xn(13).geojson','Ten_xn(12).geojson','Ten_xn.geojson','ten_xn.geojson','Ten_xn(9).geojson']],
+  ['Số lô',['Text_lo(13).geojson','Text_lo(12).geojson','Text_lo.geojson','text_lo.geojson','Text_lo(9).geojson']]
+ ];
+ status('Đang tải dữ liệu GeoJSON…');const results=await Promise.allSettled(jobs.map(j=>fetchFirst(j[1]))),errors=[];results.forEach((r,i)=>{if(r.status==='rejected')errors.push(jobs[i][0])});
+ if(results[0].status!=='fulfilled'){status('Không tìm thấy file Thua.geojson đặt cùng thư mục HTML.','error');return}
+ const data=results[0].value.data;
+ const layer=L.geoJSON(data,{pane:'polygonPane',style:f=>({color:'#fff',weight:1.2,opacity:1,fillColor:getQualityColor(f),fillOpacity:.91,lineJoin:'round'}),onEachFeature:(f,l)=>{
+  l.bindPopup(()=>'<div class="map-popup-table-wrap">'+createPopup(f)+'</div>',{className:'clean-plot-popup',maxWidth:400,maxHeight:650,autoPan:true});
+  const b=l.getBounds();if(b.isValid()){const nw=b.getNorthWest(),label=getPlotLabel(f.properties);if(label!=='')L.marker([nw.lat-.00004,nw.lng+.00004],{pane:'labelPane',interactive:false,icon:L.divIcon({className:'thua-label',html:escapeHtml(label),iconSize:null})}).addTo(map)}
+ }}).addTo(map);
+ if(layer.getBounds().isValid())map.fitBounds(layer.getBounds(),{padding:[12,12]});
+ if(results[1].status==='fulfilled'){const d=results[1].value.data;L.geoJSON(d,{pane:'linePane',interactive:false,style:{color:'#fff',weight:4}}).addTo(map);L.geoJSON(d,{pane:'linePane',interactive:false,style:{color:'#29B6F6',weight:2}}).addTo(map)}
+ if(results[2].status==='fulfilled')L.geoJSON(results[2].value.data,{pane:'ranhPane',interactive:false,style:{color:'#8B0000',weight:5,fill:false}}).addTo(map);
+ if(results[3].status==='fulfilled')L.geoJSON(results[3].value.data,{pointToLayer:(f,ll)=>L.marker(ll,{pane:'labelPane',interactive:false,icon:L.divIcon({className:'xn-label',html:escapeHtml(f.properties?.Name||f.properties?.NAME||''),iconSize:[120,30]})})}).addTo(map);
+ if(results[4].status==='fulfilled')L.geoJSON(results[4].value.data,{pointToLayer:(f,ll)=>L.marker(ll,{pane:'labelPane',interactive:false,icon:L.divIcon({className:'lo-label',html:escapeHtml(f.properties?.Name||f.properties?.NAME||''),iconSize:[22,22]})})}).addTo(map);
+ if(errors.length)status('Bản đồ đã mở. Chưa tải được: '+errors.join(', ')+'.','warn');else status('','ok');
+}
+init();
+})();
+</script>
+</body>
+</html>
