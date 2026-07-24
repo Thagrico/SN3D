@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sửa thang bón vôi theo pH</title>
+<style>
+body{font-family:Tahoma,Arial,sans-serif;background:#eef4f1;margin:0;padding:24px;color:#173224}
+.box{max-width:720px;margin:auto;background:#fff;border-radius:14px;padding:24px;box-shadow:0 5px 24px rgba(0,0,0,.12)}
+h1{font-size:22px;margin:0 0 14px;color:#14532d}
+.rule{border-collapse:collapse;width:100%;margin:14px 0 20px}
+.rule th,.rule td{border:1px solid #cfd8d3;padding:9px;text-align:left}
+.rule th{background:#bfe7f3}
+input{display:block;width:100%;box-sizing:border-box;padding:12px;border:1px solid #aebdb5;border-radius:8px;background:#fff}
+button{margin-top:14px;border:0;border-radius:8px;padding:12px 18px;background:#166534;color:#fff;font-weight:700;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+#msg{margin-top:14px;line-height:1.45}
+.small{font-size:13px;color:#53635a}
+.ok{color:#166534;font-weight:700}.err{color:#a40000;font-weight:700}
+</style>
+</head>
+<body>
+<div class="box">
+<h1>Sửa phần vôi theo thang pH mới</h1>
+<table class="rule">
+<tr><th>Mức đánh giá</th><th>pH</th><th>Vôi (g/cây)</th></tr>
+<tr><td>Rất chua</td><td>&lt;5</td><td>1000</td></tr>
+<tr><td>Ít chua</td><td>5–6</td><td>500</td></tr>
+<tr><td>Trung tính và kiềm</td><td>&gt;6</td><td>Không bón</td></tr>
+</table>
+<p>Chọn file HTML mới nhất đang dùng. Công cụ chỉ sửa phần tính và phần giải thích về vôi, giữ nguyên các nội dung khác.</p>
+<input id="file" type="file" accept=".html,text/html">
+<button id="run" disabled>Sửa và tải file HTML mới</button>
+<div id="msg" class="small"></div>
+</div>
+<script>
+const fileInput=document.getElementById('file');
+const runBtn=document.getElementById('run');
+const msg=document.getElementById('msg');
+fileInput.addEventListener('change',()=>{runBtn.disabled=!fileInput.files.length;msg.textContent=''});
+function replaceAllCount(text,find,repl){
+ let count=0;
+ const out=text.replace(find,(...args)=>{count++;return typeof repl==='function'?repl(...args):repl});
+ return {text:out,count};
+}
+runBtn.addEventListener('click',async()=>{
+ try{
+  const file=fileInput.files[0];
+  if(!file)throw new Error('Chưa chọn file HTML.');
+  let text=await file.text();
+  let total=0,r;
+
+  const replacements=[
+   [/if\(value<4\)return 1000;/g,'if(value<5)return 1000;'],
+   [/if\(value<6\)return 500;/g,'if(value<=6)return 500;'],
+   [/level=value<4\?'very-acid':value<6\?'slightly-acid':value<=7\?'neutral':'alkaline';/g,
+    "level=value<5?'very-acid':value<=6?'slightly-acid':value<=7?'neutral':'alkaline';"],
+
+   [/pH H₂O < 4: bón 1\.000 g\/cây/g,'pH H₂O < 5: bón 1000 g/cây'],
+   [/pH H₂O < 4: bón 1000 g\/cây/g,'pH H₂O < 5: bón 1000 g/cây'],
+   [/pH H₂O < 4: apply 1,000 g\/tree/g,'pH H₂O < 5: apply 1000 g/tree'],
+   [/pH H₂O < 4: apply 1000 g\/tree/g,'pH H₂O < 5: apply 1000 g/tree'],
+
+   [/pH H₂O từ 4 đến dưới 6: bón 500 g\/cây/g,'pH H₂O từ 5 đến 6: bón 500 g/cây'],
+   [/pH H₂O 4 to <6: apply 500 g\/tree/g,'pH H₂O 5–6: apply 500 g/tree'],
+
+   [/pH H₂O từ 6 đến 7: không bón vôi/g,'pH H₂O > 6: không bón vôi'],
+   [/pH H₂O 6–7: no lime/g,'pH H₂O > 6: no lime'],
+   [/pH H₂O > 7: không bón vôi/g,'pH H₂O > 6: không bón vôi'],
+   [/pH H₂O > 7: no lime/g,'pH H₂O > 6: no lime'],
+
+   [/Rất chua\/Very acidic pH<4: 1000; Ít chua\/Slightly acidic 4–<6: 500; Trung tính\/Neutral 6–7 và Kiềm\/Alkaline >7: không bón/g,
+    'Rất chua/Very acidic pH<5: 1000; Ít chua/Slightly acidic pH 5–6: 500; Trung tính và kiềm/Neutral and alkaline pH>6: không bón'],
+   [/Rất chua\/Very acidic pH&lt;4: 1000; Ít chua\/Slightly acidic 4–&lt;6: 500/g,
+    'Rất chua/Very acidic pH&lt;5: 1000; Ít chua/Slightly acidic pH 5–6: 500'],
+   [/Trung tính\/Neutral 6–7; Kiềm\/Alkaline &gt;7: Không bón \(No lime\)/g,
+    'Trung tính và kiềm/Neutral and alkaline pH&gt;6: Không bón (No lime)'],
+
+   [/pH<4: 1000; 4–<6: 500; 6–7 và >7: không bón/g,
+    'pH<5: 1000; 5–6: 500; >6: không bón'],
+   [/pH&lt;4: 1000; 4–&lt;6: 500/g,
+    'pH&lt;5: 1000; 5–6: 500'],
+   [/pH 6–7, &gt;7: 0 g\/cây \(g\/tree\)/g,
+    'pH&gt;6: Không bón (No lime)'],
+
+   [/Nếu pH H₂O từ 6 trở lên thì để trống vì không bón\./g,
+    'Nếu pH H₂O lớn hơn 6 thì để trống vì không bón.']
+  ];
+
+  for(const [find,repl] of replacements){
+   r=replaceAllCount(text,find,repl); text=r.text; total+=r.count;
+  }
+
+  if(total<4){
+   throw new Error('Không nhận diện đủ mã phần vôi trong file này. Hãy chọn đúng file HTML mới nhất.');
+  }
+
+  const blob=new Blob([text],{type:'text/html;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='index_60_voi_theo_thang_pH_moi.html';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  msg.className='ok';
+  msg.textContent='Đã sửa '+total+' vị trí. File mới đã được tải xuống: index_60_voi_theo_thang_pH_moi.html';
+ }catch(e){
+  msg.className='err';
+  msg.textContent=e.message||String(e);
+ }
+});
+</script>
+</body>
+</html>
